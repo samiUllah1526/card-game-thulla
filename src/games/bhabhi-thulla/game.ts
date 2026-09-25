@@ -2,17 +2,20 @@ import { INVALID_MOVE } from 'boardgame.io/core'
 import type { Game } from 'boardgame.io'
 import { config } from '../../config'
 import {
+  actionBlocked,
   addEvent,
   deal,
+  executeTake,
   finishIfNeeded,
   hasAceOfSpades,
   isLegalPlay,
   nextActive,
-  pickupPending,
   removeCard,
   removeEmptyPlayer,
   resolveTrick,
   syncCounts,
+  takePending,
+  takeRejectPending,
 } from './rules'
 import { orderedDeck, shuffleDeck, shuffleReport } from './shuffle'
 import type { BhabhiState, SetupData } from './types'
@@ -23,7 +26,7 @@ function playCard(
 ) {
   if (!G.started || G.phase === 'finished' || playerID !== G.turnPlayer) return INVALID_MOVE
   if (G.phase !== 'preTrick' && G.phase !== 'follow') return INVALID_MOVE
-  if (pickupPending(G)) return INVALID_MOVE
+  if (actionBlocked(G)) return INVALID_MOVE
 
   const hand = G.hands[playerID]
   const card = hand.find((candidate) => candidate.id === cardID)
@@ -66,6 +69,17 @@ function playCard(
   G.turnPlayer = nextActive(remaining, playerID)
 }
 
+function canStartTake(G: BhabhiState, playerID: string): boolean {
+  return (
+    G.started &&
+    G.phase === 'preTrick' &&
+    playerID === G.turnPlayer &&
+    playerID === G.leader &&
+    G.active.length >= 2 &&
+    !actionBlocked(G)
+  )
+}
+
 export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData> = {
   name: config.game.name,
   minPlayers: config.game.minPlayers,
@@ -106,6 +120,9 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
       phase: 'waiting',
       events: [{ id: 1, type: 'waiting' }],
       shuffleReport: shuffleReport(original, shuffled, options),
+      takeRequiresPermission:
+        setupData?.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
+      takeCount: 0,
     }
   },
 
@@ -126,26 +143,45 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
     },
 
     takeLeftHand: ({ G, playerID }) => {
-      if (
-        !G.started ||
-        G.phase !== 'preTrick' ||
-        playerID !== G.turnPlayer ||
-        playerID !== G.leader ||
-        G.active.length < 2 ||
-        pickupPending(G)
-      ) {
-        return INVALID_MOVE
-      }
+      if (!canStartTake(G, playerID)) return INVALID_MOVE
 
       const victim = nextActive(G.active, playerID)
-      const count = G.hands[victim].length
-      G.hands[playerID].push(...G.hands[victim])
-      G.hands[victim] = []
-      removeEmptyPlayer(G, victim)
-      addEvent(G, { type: 'took', taker: playerID, victim, count })
-      syncCounts(G)
-      const finished = finishIfNeeded(G)
-      G.turnPlayer = finished ? G.active[0] : playerID
+
+      if (G.takeRequiresPermission) {
+        G.takeCount += 1
+        G.pendingTake = { id: G.takeCount, from: playerID, to: victim }
+        // Hand the turn to the victim so they can Accept/Reject (maxMoves: 1).
+        G.turnPlayer = victim
+        addEvent(G, { type: 'takeAsked', from: playerID, to: victim })
+        return
+      }
+
+      executeTake(G, playerID, victim)
+    },
+
+    respondTake: ({ G, playerID }, accept: boolean) => {
+      if (!takePending(G) || !G.pendingTake) return INVALID_MOVE
+      if (playerID !== G.pendingTake.to) return INVALID_MOVE
+
+      const { from, to } = G.pendingTake
+      G.pendingTake = undefined
+
+      if (accept) {
+        executeTake(G, from, to, 'accepted')
+        return
+      }
+
+      G.takeCount += 1
+      G.lastTakeReject = { id: G.takeCount, from, to, dismissed: false }
+      // Roasted requester must dismiss before play resumes.
+      G.turnPlayer = from
+      addEvent(G, { type: 'takeRejected', from, to })
+    },
+
+    dismissTakeReject: ({ G, playerID }) => {
+      if (!takeRejectPending(G) || !G.lastTakeReject) return INVALID_MOVE
+      if (playerID !== G.lastTakeReject.from) return INVALID_MOVE
+      G.lastTakeReject.dismissed = true
     },
 
     playCard,

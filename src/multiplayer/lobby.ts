@@ -31,6 +31,8 @@ export async function createMatch(
       setupData: {
         shuffleAlgorithm: setupData.shuffleAlgorithm ?? config.shuffle.defaultAlgorithm,
         shuffleScale: setupData.shuffleScale ?? config.shuffle.defaultScale,
+        takeRequiresPermission:
+          setupData.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
       },
     }),
   })

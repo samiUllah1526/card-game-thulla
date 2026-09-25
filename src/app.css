@@ -420,6 +420,21 @@ input::placeholder { color: #96a098; }
 .scale-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; font-weight: 700; }
 .scale-hint { margin: 0; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.4; }
 
+.take-mode {
+  margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px;
+  display: grid; gap: 10px; background: rgba(255, 253, 246, .65);
+}
+.take-mode legend {
+  padding: 0 6px; color: var(--ink); font-size: 13px; font-weight: 800;
+}
+.radio-option {
+  display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: start;
+  margin: 0; cursor: pointer;
+}
+.radio-option input { margin-top: 3px; accent-color: var(--green); }
+.radio-option strong { display: block; color: var(--ink); font-size: 14px; font-weight: 800; }
+.radio-option small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+
 .shuffle-badge {
   margin: 0 14px 4px; padding: 6px 12px; border-radius: 999px; align-self: center;
   color: var(--green-dark); background: rgba(232, 242, 214, .9); border: 1px solid #c9dbad;
@@ -634,6 +649,37 @@ input::placeholder { color: #96a098; }
   font-size: 12px; font-weight: 850; text-align: center;
 }
 .take-button { min-height: 40px; margin-bottom: 8px; color: #674e0f; border: 1px solid #d6c166; background: #fff5bd; font-size: 12px; }
+.take-button:disabled { opacity: .45; }
+
+.house-rule {
+  margin: 0 0 4px; padding: 8px 12px; border-radius: 12px;
+  color: #674e0f; background: #fff5bd; border: 1px solid #e6d48a;
+  font-size: 12px; font-weight: 750; text-align: center;
+}
+
+.take-ask-banner {
+  display: grid; gap: 10px; margin-bottom: 10px; padding: 14px 14px 12px;
+  border-radius: 16px; border: 2px solid #c45c3e; background: linear-gradient(180deg, #fff8f4, #ffe8df);
+  box-shadow: 0 8px 20px rgba(160, 60, 40, .12);
+}
+.take-ask-banner p { margin: 0; color: var(--ink); font-size: 15px; font-weight: 700; text-align: center; line-height: 1.35; }
+.take-ask-banner strong { color: #a52f35; }
+.take-ask-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.accept-button, .reject-button {
+  min-height: 48px; border: 0; border-radius: 14px; font-size: 15px; font-weight: 900;
+}
+.accept-button { color: white; background: var(--green); box-shadow: 0 6px 14px rgba(23, 107, 69, .2); }
+.reject-button { color: white; background: #c04545; box-shadow: 0 6px 14px rgba(160, 40, 40, .22); }
+
+.deny-overlay .deny-card {
+  border-color: #e0a090;
+  background: linear-gradient(180deg, #fff7f4, #ffe9e2);
+}
+.deny-stamp {
+  color: #fff8f5;
+  background: #c04545;
+  box-shadow: 0 6px 0 #8f2e2e;
+}
 .hand { min-height: 88px; display: flex; gap: 6px; overflow-x: auto; overflow-y: visible; padding: 10px 2px 3px; scrollbar-width: none; }
 .playing-card {
   flex: 0 0 56px; height: 80px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;

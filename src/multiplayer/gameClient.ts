@@ -11,6 +11,8 @@ export interface GameConnection {
     takeLeftHand: () => void
     playCard: (cardID: string) => void
     dismissPickup: () => void
+    respondTake: (accept: boolean) => void
+    dismissTakeReject: () => void
   }
   stop: () => void
 }
@@ -47,6 +49,8 @@ export function connectGame(session: Session): GameConnection {
       takeLeftHand: () => client.moves.takeLeftHand(),
       playCard: (cardID) => client.moves.playCard(cardID),
       dismissPickup: () => client.moves.dismissPickup(),
+      respondTake: (accept) => client.moves.respondTake(accept),
+      dismissTakeReject: () => client.moves.dismissTakeReject(),
     },
     stop: () => {
       unsubscribe()

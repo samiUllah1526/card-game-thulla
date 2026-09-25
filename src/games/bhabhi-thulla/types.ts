@@ -24,7 +24,25 @@ export type GameEvent =
   | { id: number; type: 'thulla'; giver: string; receiver: string; count: number }
   | { id: number; type: 'gotAway'; player: string }
   | { id: number; type: 'took'; taker: string; victim: string; count: number }
+  | { id: number; type: 'takeAsked'; from: string; to: string }
+  | { id: number; type: 'takeAccepted'; from: string; to: string; count: number }
+  | { id: number; type: 'takeRejected'; from: string; to: string }
   | { id: number; type: 'bhabhi'; player: string }
+
+/** Leader asked to take the next player's hand; waiting for Accept/Reject. */
+export interface PendingTake {
+  id: number
+  from: string
+  to: string
+}
+
+/** Public roast after a take request is rejected. */
+export interface TakeRejectRoast {
+  id: number
+  from: string
+  to: string
+  dismissed: boolean
+}
 
 /** A GameEvent before the server assigns its id (distributes over the union). */
 export type GameEventInput = GameEvent extends infer E ? (E extends GameEvent ? Omit<E, 'id'> : never) : never
@@ -64,6 +82,7 @@ export interface LobbySeat {
 export interface SetupData {
   shuffleAlgorithm?: string
   shuffleScale?: number
+  takeRequiresPermission?: boolean
 }
 
 export interface ShuffleReport {
@@ -99,6 +118,10 @@ export interface BhabhiState {
   phase: 'waiting' | 'preTrick' | 'follow' | 'finished'
   events: GameEvent[]
   shuffleReport: ShuffleReport
+  takeRequiresPermission: boolean
+  takeCount: number
+  pendingTake?: PendingTake
+  lastTakeReject?: TakeRejectRoast
   winner?: string
   bhabhi?: string
 }

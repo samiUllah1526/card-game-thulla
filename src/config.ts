@@ -10,6 +10,8 @@ export const config = {
     maxPlayers: 8,
     /** How many recent events the server keeps in state. */
     eventHistory: 5,
+    /** When false, the leader can take the next hand immediately (classic). */
+    defaultTakeRequiresPermission: false,
   },
 
   shuffle: {
@@ -72,6 +74,10 @@ export const config = {
     thullaReceiver: [60, 40, 60, 40, 120, 60, 220],
     /** Dramatic pattern when someone is named Bhabhi. */
     bhabhi: [80, 60, 80, 60, 160, 100, 320],
+    /** Soft ping when someone asks to take your cards. */
+    takeAsk: [50, 40, 80],
+    /** Buzz when a take request is rejected (everyone). */
+    takeReject: [70, 50, 70, 50, 140],
   },
 
   /** Playful roast when the last player left holding cards is named Bhabhi. */
@@ -91,6 +97,14 @@ export const config = {
       'All that and you’re still Bhabhi.',
       'The cards chose you. Bhabhi.',
       'Everyone’s staring. You’re Bhabhi.',
+    ],
+    /** Public roast when a take request is rejected. {name} = rejected requester. */
+    takeRejectTaunts: [
+      '{name} got shut down!',
+      'No cards for {name}!',
+      '{name} asked. The answer was no.',
+      'Denied! {name} walks away empty.',
+      '{name} tried it. Bold. Failed.',
     ],
   },
 

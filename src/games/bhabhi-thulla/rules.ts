@@ -87,6 +87,46 @@ export function pickupPending(state: BhabhiState): boolean {
   return !!state.lastPickup && !state.lastPickup.dismissed
 }
 
+/** True while a take request is waiting for Accept/Reject. */
+export function takePending(state: BhabhiState): boolean {
+  return !!state.pendingTake
+}
+
+/** True while a rejected take roast is waiting for the requester to dismiss. */
+export function takeRejectPending(state: BhabhiState): boolean {
+  return !!state.lastTakeReject && !state.lastTakeReject.dismissed
+}
+
+/** Blocks new leads/takes while Thulla, take ask, or reject roast is open. */
+export function actionBlocked(state: BhabhiState): boolean {
+  return pickupPending(state) || takePending(state) || takeRejectPending(state)
+}
+
+/**
+ * Transfer victim's hand to taker; victim gets away.
+ * `via` chooses which public event is recorded.
+ */
+export function executeTake(
+  state: BhabhiState,
+  taker: string,
+  victim: string,
+  via: 'free' | 'accepted' = 'free',
+): boolean {
+  const count = state.hands[victim].length
+  state.hands[taker].push(...state.hands[victim])
+  state.hands[victim] = []
+  removeEmptyPlayer(state, victim)
+  if (via === 'accepted') {
+    addEvent(state, { type: 'takeAccepted', from: taker, to: victim, count })
+  } else {
+    addEvent(state, { type: 'took', taker, victim, count })
+  }
+  syncCounts(state)
+  const finished = finishIfNeeded(state)
+  state.turnPlayer = finished ? state.active[0] : taker
+  return finished
+}
+
 export function resolveTrick(state: BhabhiState, thulla: boolean): string {
   const ledSuit = state.ledSuit!
   const highest = highestLedSuit(state.trick, ledSuit)

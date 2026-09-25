@@ -47,6 +47,8 @@ function stateWithTrick(): BhabhiState {
       verdict: 'random',
       verdictLabel: 'Random',
     },
+    takeRequiresPermission: false,
+    takeCount: 0,
   }
 }
 

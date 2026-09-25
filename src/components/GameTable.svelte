@@ -63,6 +63,11 @@
   let shaking = false
   let sawFinished = false
 
+  // ---- Take-reject roast -------------------------------------------------
+  let takeRejectTaunt = ''
+  let seenTakeAskID = 0
+  let seenTakeRejectID = 0
+
   const unsubscribe = connection.state.subscribe((value) => {
     const G = value?.G
     if (G) {
@@ -83,6 +88,29 @@
       }
       wasPending = pending
       pendingID = pickup?.id ?? 0
+
+      // Take ask: buzz the recipient once.
+      const ask = G.pendingTake
+      if (ask && ask.id !== seenTakeAskID) {
+        seenTakeAskID = ask.id
+        if (ask.to === session.playerID) vibrate(haptics.takeAsk)
+      }
+
+      // Take reject: public roast + shake + buzz.
+      const reject = G.lastTakeReject
+      if (reject && !reject.dismissed && reject.id !== seenTakeRejectID) {
+        seenTakeRejectID = reject.id
+        const list = roast.takeRejectTaunts
+        const template = list[Math.floor(Math.random() * list.length)]
+        takeRejectTaunt = template.replaceAll('{name}', nameFor(reject.from))
+        shaking = true
+        vibrate(haptics.takeReject)
+        timers.push(
+          window.setTimeout(() => {
+            shaking = false
+          }, timing.bhabhiShakeMs),
+        )
+      }
 
       // Completed trick: show it when a new one is recorded.
       const trick = G.lastTrick
@@ -244,6 +272,12 @@
         return `${nameFor(event.player)} got away`
       case 'took':
         return `${nameFor(event.taker)} took all ${event.count} of ${nameFor(event.victim)}’s cards`
+      case 'takeAsked':
+        return `${nameFor(event.from)} asked to take ${nameFor(event.to)}’s cards`
+      case 'takeAccepted':
+        return `${nameFor(event.to)} let ${nameFor(event.from)} take ${event.count} cards`
+      case 'takeRejected':
+        return `${nameFor(event.to)} rejected ${nameFor(event.from)}’s take`
       case 'bhabhi':
         return `${nameFor(event.player)} is Bhabhi`
     }
@@ -272,13 +306,29 @@
     if (openNameFor) nameTimer = window.setTimeout(() => (openNameFor = null), timing.nameTipMs)
   }
 
-  function statusText(G: BhabhiState, pendingPickup: PickupEvent | null, canAct: boolean): string {
+  function statusText(
+    G: BhabhiState,
+    pendingPickup: PickupEvent | null,
+    pendingTake: BhabhiState['pendingTake'] | null | undefined,
+    pendingReject: BhabhiState['lastTakeReject'] | null | undefined,
+    canAct: boolean,
+  ): string {
     if (G.phase === 'finished') return `${nameFor(G.bhabhi!)} is Bhabhi`
     if (!G.started) return session.playerID === '0' ? 'Start when everyone has joined' : 'Waiting for the host'
     if (pendingPickup) {
       return pendingPickup.receiver === session.playerID
         ? `You picked up ${pendingPickup.cards.length} cards — tap Continue`
         : `${nameFor(pendingPickup.receiver)} picks up ${pendingPickup.cards.length} cards`
+    }
+    if (pendingTake) {
+      return pendingTake.to === session.playerID
+        ? `${nameFor(pendingTake.from)} wants your cards — Accept or Reject`
+        : `Waiting for ${nameFor(pendingTake.to)} to answer ${nameFor(pendingTake.from)}’s take request`
+    }
+    if (pendingReject && !pendingReject.dismissed) {
+      return pendingReject.from === session.playerID
+        ? 'Your take was denied — tap Continue'
+        : `Waiting for ${nameFor(pendingReject.from)} to recover…`
     }
     if (G.turnPlayer === session.playerID) {
       if (!canAct) return 'Get ready — your lead is next'
@@ -303,6 +353,8 @@
 {:else}
   {@const G = state.G}
   {@const pendingPickup = G.lastPickup && !G.lastPickup.dismissed ? G.lastPickup : null}
+  {@const pendingTake = G.pendingTake}
+  {@const pendingReject = G.lastTakeReject && !G.lastTakeReject.dismissed ? G.lastTakeReject : null}
   {@const activePickup = pendingPickup ?? flyingPickup}
   {@const receivingMine = activePickup?.receiver === session.playerID}
   {@const hiddenIDs = new Set(receivingMine ? activePickup!.cards.map((card) => card.id) : [])}
@@ -311,9 +363,11 @@
     .sort((a, b) => a.suit.localeCompare(b.suit) || a.rank - b.rank)}
   {@const legal = new Set(legalCards(myHand, G.ledSuit).map((card) => card.id))}
   {@const isMyTurn = G.started && G.turnPlayer === session.playerID && G.phase !== 'finished'}
-  {@const canAct = isMyTurn && !activePickup && !(trickLocked && shownTrick && G.trick.length === 0)}
+  {@const takeBlocked = !!pendingTake || !!pendingReject}
+  {@const canAct = isMyTurn && !activePickup && !takeBlocked && !(trickLocked && shownTrick && G.trick.length === 0)}
+  {@const nextVictim = G.active[(G.active.indexOf(session.playerID) + 1) % G.active.length]}
   {@const lastEvent = G.events[G.events.length - 1]}
-  {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup}
+  {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup && !pendingTake && !pendingReject}
 
   <main class="table-page" class:shaking class:finished={G.phase === 'finished'}>
     <header class="table-header">
@@ -324,12 +378,6 @@
       </div>
       <div class="waste"><span>▧</span><strong>{G.wasteCount}</strong><small>waste</small></div>
     </header>
-
-    {#if G.shuffleReport && G.started}
-      <div class="shuffle-badge" title={`Order ${Math.round(G.shuffleReport.orderScore * 100)}% · Suit clumps ${Math.round(G.shuffleReport.clumpScore * 100)}%`}>
-        {formatShuffleReport(G.shuffleReport)}
-      </div>
-    {/if}
 
     {#if !G.started}
       <section class="waiting-card">
@@ -354,6 +402,9 @@
               {/if}
             </p>
           </div>
+        {/if}
+        {#if G.takeRequiresPermission}
+          <p class="house-rule">House rule: takes need permission</p>
         {/if}
         <div class="seat-list">
           {#each seats as seat}
@@ -430,9 +481,9 @@
       </section>
 
       <section class="play-area">
-        <div class="status" class:mine={canAct}>
+        <div class="status" class:mine={canAct || pendingTake?.to === session.playerID || pendingReject?.from === session.playerID}>
           <span class="status-dot"></span>
-          {statusText(G, pendingPickup, canAct)}
+          {statusText(G, pendingPickup, pendingTake, pendingReject, canAct)}
         </div>
 
         <div class="trick">
@@ -507,11 +558,11 @@
           {/if}
         </div>
 
-        {#if lastEvent && !pendingPickup}
+        {#if lastEvent && !pendingPickup && !pendingTake && !pendingReject}
           {#key lastEvent.id}
             <div class="event-banner" class:thulla={lastEvent.type === 'thulla'} class:bhabhi={lastEvent.type === 'bhabhi'} in:fly={{ y: 14, duration: 320, easing: cubicOut }}>
               <span class="event-icon">
-                {#if lastEvent.type === 'thulla'}!{:else if lastEvent.type === 'gotAway'}✓{:else if lastEvent.type === 'bhabhi'}★{:else}♠{/if}
+                {#if lastEvent.type === 'thulla'}!{:else if lastEvent.type === 'gotAway'}✓{:else if lastEvent.type === 'bhabhi'}★{:else if lastEvent.type === 'takeRejected'}✕{:else}♠{/if}
               </span>
               {describe(lastEvent)}
             </div>
@@ -542,9 +593,26 @@
               You picked up the Thulla — {activePickup.cards.length} cards added
             </div>
           {/if}
-          {#if canAct && G.phase === 'preTrick'}
+          {#if pendingTake?.to === session.playerID}
+            <div class="take-ask-banner" role="alertdialog" aria-label="Take request" in:fly={{ y: 16, duration: 280 }}>
+              <p><strong>{nameFor(pendingTake.from)}</strong> wants to take all your cards</p>
+              <div class="take-ask-actions">
+                <button class="accept-button" on:click={() => connection.moves.respondTake(true)}>Accept</button>
+                <button class="reject-button" on:click={() => connection.moves.respondTake(false)}>Reject</button>
+              </div>
+            </div>
+          {/if}
+          {#if canAct && G.phase === 'preTrick' && nextVictim}
             <button class="take-button" on:click={connection.moves.takeLeftHand}>
-              Take {nameFor(G.active[(G.active.indexOf(session.playerID) + 1) % G.active.length])}’s cards
+              {G.takeRequiresPermission
+                ? `Ask to take ${nameFor(nextVictim)}’s cards`
+                : `Take ${nameFor(nextVictim)}’s cards`}
+            </button>
+          {:else if isMyTurn && G.phase === 'preTrick' && takeBlocked && G.leader === session.playerID}
+            <button class="take-button" disabled>
+              {pendingTake
+                ? `Waiting for ${nameFor(pendingTake.to)}…`
+                : 'Waiting…'}
             </button>
           {/if}
           <div class="hand" aria-label="Your cards" bind:this={handEl}>
@@ -572,6 +640,34 @@
           {/if}
         {/if}
       </section>
+    {/if}
+
+    {#if pendingReject}
+      <div
+        class="roast-overlay deny-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Take denied"
+        in:fade={{ duration: 180 }}
+        out:fade={{ duration: 220 }}
+      >
+        <div class="roast-card deny-card" in:scale={{ start: 0.55, duration: 520, easing: cubicOut }}>
+          <span class="roast-stamp deny-stamp" in:scale={{ start: 2.6, duration: 480, easing: cubicOut }}>DENIED</span>
+          <div class="roast-avatar" aria-hidden="true">
+            {nameFor(pendingReject.from).slice(0, 1).toUpperCase()}
+          </div>
+          <p class="roast-kicker">Take request rejected</p>
+          <h2 class="roast-name">{nameFor(pendingReject.from)}</h2>
+          <p class="roast-taunt">{takeRejectTaunt || `${nameFor(pendingReject.from)} got shut down!`}</p>
+          {#if pendingReject.from === session.playerID}
+            <button class="primary roast-dismiss" on:click={connection.moves.dismissTakeReject}>
+              Continue
+            </button>
+          {:else}
+            <p class="pickup-wait">Waiting for {nameFor(pendingReject.from)} to recover…</p>
+          {/if}
+        </div>
+      </div>
     {/if}
 
     {#if roastOpen && G.bhabhi}

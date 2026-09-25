@@ -15,6 +15,7 @@
   let playerCount = Math.min(4, config.game.maxPlayers)
   let shuffleAlgorithm: string = config.shuffle.defaultAlgorithm
   let shuffleScale = config.shuffle.defaultScale
+  let takeMode: 'free' | 'ask' = config.game.defaultTakeRequiresPermission ? 'ask' : 'free'
   let matchID = ''
   let seats: LobbySeat[] = []
   let selectedSeat = ''
@@ -34,6 +35,7 @@
       const session = await createMatch(playerName.trim(), playerCount, {
         shuffleAlgorithm,
         shuffleScale,
+        takeRequiresPermission: takeMode === 'ask',
       })
       saveSession(session)
       onJoined(session)
@@ -138,6 +140,23 @@
       <span class="scale-ends"><span>Stacked</span><span>Random</span></span>
       <p class="scale-hint">{selectedAlgo.hint}</p>
     </label>
+    <fieldset class="take-mode">
+      <legend>Taking cards</legend>
+      <label class="radio-option">
+        <input type="radio" bind:group={takeMode} value="free" />
+        <span>
+          <strong>Free take</strong>
+          <small>Leader can take the next player's hand immediately</small>
+        </span>
+      </label>
+      <label class="radio-option">
+        <input type="radio" bind:group={takeMode} value="ask" />
+        <span>
+          <strong>Ask permission</strong>
+          <small>Next player must Accept or Reject before cards move</small>
+        </span>
+      </label>
+    </fieldset>
     <button class="primary" on:click={create} disabled={loading}>Create game</button>
   </section>
 
