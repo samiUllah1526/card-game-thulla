@@ -9,14 +9,19 @@
     { length: config.game.maxPlayers - config.game.minPlayers + 1 },
     (_, index) => config.game.minPlayers + index,
   )
+  const algorithms = config.shuffle.algorithms
 
   let playerName = ''
   let playerCount = Math.min(4, config.game.maxPlayers)
+  let shuffleAlgorithm: string = config.shuffle.defaultAlgorithm
+  let shuffleScale = config.shuffle.defaultScale
   let matchID = ''
   let seats: LobbySeat[] = []
   let selectedSeat = ''
   let loading = false
   let error = ''
+
+  $: selectedAlgo = algorithms.find((entry) => entry.id === shuffleAlgorithm) ?? algorithms[0]
 
   async function create() {
     if (!playerName.trim()) {
@@ -26,7 +31,10 @@
     loading = true
     error = ''
     try {
-      const session = await createMatch(playerName.trim(), playerCount)
+      const session = await createMatch(playerName.trim(), playerCount, {
+        shuffleAlgorithm,
+        shuffleScale,
+      })
       saveSession(session)
       onJoined(session)
     } catch (reason) {
@@ -106,6 +114,29 @@
           <option value={count}>{count} players</option>
         {/each}
       </select>
+    </label>
+    <label>
+      <span>Shuffle method</span>
+      <select bind:value={shuffleAlgorithm}>
+        {#each algorithms as algo}
+          <option value={algo.id}>{algo.label}</option>
+        {/each}
+      </select>
+    </label>
+    <label class="scale-label">
+      <span class="scale-head">
+        <span>Shuffle intensity</span>
+        <strong>{shuffleScale}/{config.shuffle.maxScale}</strong>
+      </span>
+      <input
+        type="range"
+        min={config.shuffle.minScale}
+        max={config.shuffle.maxScale}
+        step="1"
+        bind:value={shuffleScale}
+      />
+      <span class="scale-ends"><span>Stacked</span><span>Random</span></span>
+      <p class="scale-hint">{selectedAlgo.hint}</p>
     </label>
     <button class="primary" on:click={create} disabled={loading}>Create game</button>
   </section>

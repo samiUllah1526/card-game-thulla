@@ -1,5 +1,5 @@
 import { config } from '../config'
-import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
+import type { LobbySeat, Session, SetupData } from '../games/bhabhi-thulla/types'
 
 const GAME = config.game.name
 const SESSION_KEY = config.storage.sessionKey
@@ -22,10 +22,17 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 export async function createMatch(
   playerName: string,
   numPlayers: number,
+  setupData: SetupData = {},
 ): Promise<Session> {
   const created = await json<{ matchID: string }>(`/games/${GAME}/create`, {
     method: 'POST',
-    body: JSON.stringify({ numPlayers }),
+    body: JSON.stringify({
+      numPlayers,
+      setupData: {
+        shuffleAlgorithm: setupData.shuffleAlgorithm ?? config.shuffle.defaultAlgorithm,
+        shuffleScale: setupData.shuffleScale ?? config.shuffle.defaultScale,
+      },
+    }),
   })
   return joinMatch(created.matchID, '0', playerName)
 }

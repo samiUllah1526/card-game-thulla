@@ -49,6 +49,34 @@ export interface ResolvedTrick {
   ledSuit: Suit
 }
 
+export interface Session {
+  matchID: string
+  playerID: string
+  credentials: string
+  playerName: string
+}
+
+export interface LobbySeat {
+  id: number
+  name?: string
+}
+
+export interface SetupData {
+  shuffleAlgorithm?: string
+  shuffleScale?: number
+}
+
+export interface ShuffleReport {
+  algorithm: string
+  algorithmLabel: string
+  scale: number
+  alpha: number
+  orderScore: number
+  clumpScore: number
+  verdict: string
+  verdictLabel: string
+}
+
 export interface BhabhiState {
   hands: Record<string, Card[]>
   handCounts: Record<string, number>
@@ -70,18 +98,7 @@ export interface BhabhiState {
   hostID: string
   phase: 'waiting' | 'preTrick' | 'follow' | 'finished'
   events: GameEvent[]
+  shuffleReport: ShuffleReport
   winner?: string
   bhabhi?: string
-}
-
-export interface LobbySeat {
-  id: number
-  name?: string
-}
-
-export interface Session {
-  matchID: string
-  playerID: string
-  credentials: string
-  playerName: string
 }

@@ -37,6 +37,16 @@ function stateWithTrick(): BhabhiState {
     hostID: '0',
     phase: 'follow',
     events: [],
+    shuffleReport: {
+      algorithm: 'blendRandom',
+      algorithmLabel: 'Blend to random',
+      scale: 10,
+      alpha: 1,
+      orderScore: 0,
+      clumpScore: 0,
+      verdict: 'random',
+      verdictLabel: 'Random',
+    },
   }
 }
 

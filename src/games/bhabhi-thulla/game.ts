@@ -3,7 +3,6 @@ import type { Game } from 'boardgame.io'
 import { config } from '../../config'
 import {
   addEvent,
-  createDeck,
   deal,
   finishIfNeeded,
   hasAceOfSpades,
@@ -15,7 +14,8 @@ import {
   resolveTrick,
   syncCounts,
 } from './rules'
-import type { BhabhiState } from './types'
+import { orderedDeck, shuffleDeck, shuffleReport } from './shuffle'
+import type { BhabhiState, SetupData } from './types'
 
 function playCard(
   { G, playerID }: { G: BhabhiState; playerID: string },
@@ -66,14 +66,20 @@ function playCard(
   G.turnPlayer = nextActive(remaining, playerID)
 }
 
-export const BhabhiThulla: Game<BhabhiState> = {
+export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData> = {
   name: config.game.name,
   minPlayers: config.game.minPlayers,
   maxPlayers: config.game.maxPlayers,
   disableUndo: true,
 
-  setup: ({ ctx, random }) => {
-    const hands = deal(random.Shuffle(createDeck()), ctx.numPlayers)
+  setup: ({ ctx, random }, setupData) => {
+    const options = {
+      algorithm: setupData?.shuffleAlgorithm,
+      scale: setupData?.shuffleScale,
+    }
+    const original = orderedDeck()
+    const shuffled = shuffleDeck(original, options, random)
+    const hands = deal(shuffled, ctx.numPlayers)
     const firstLeader =
       Object.entries(hands).find(([, hand]) => hasAceOfSpades(hand))?.[0] ?? '0'
     const handCounts = Object.fromEntries(
@@ -99,6 +105,7 @@ export const BhabhiThulla: Game<BhabhiState> = {
       hostID: '0',
       phase: 'waiting',
       events: [{ id: 1, type: 'waiting' }],
+      shuffleReport: shuffleReport(original, shuffled, options),
     }
   },
 

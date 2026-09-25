@@ -17,6 +17,7 @@
   import type { GameConnection, GameSnapshot } from '../multiplayer/gameClient'
   import { getSeats } from '../multiplayer/lobby'
   import { legalCards } from '../games/bhabhi-thulla/rules'
+  import { formatShuffleReport } from '../games/bhabhi-thulla/shuffle'
 
   export let session: Session
   export let connection: GameConnection
@@ -276,11 +277,36 @@
       <div class="waste"><span>▧</span><strong>{G.wasteCount}</strong><small>waste</small></div>
     </header>
 
+    {#if G.shuffleReport && G.started}
+      <div class="shuffle-badge" title={`Order ${Math.round(G.shuffleReport.orderScore * 100)}% · Suit clumps ${Math.round(G.shuffleReport.clumpScore * 100)}%`}>
+        {formatShuffleReport(G.shuffleReport)}
+      </div>
+    {/if}
+
     {#if !G.started}
       <section class="waiting-card">
         <div class="pulse">♠</div>
         <h1>Players are joining</h1>
         <p>Share the game code with friends. The game can start when every chosen seat is filled.</p>
+        {#if G.shuffleReport}
+          <div class="shuffle-report" class:stacked={G.shuffleReport.verdict === 'stacked'} class:random={G.shuffleReport.verdict === 'random' || G.shuffleReport.verdict === 'well'}>
+            <p class="shuffle-kicker">Deck shuffle</p>
+            <strong>{formatShuffleReport(G.shuffleReport)}</strong>
+            <p>
+              {#if G.shuffleReport.verdict === 'stacked'}
+                Cards are still nearly in order — expect long suit runs.
+              {:else if G.shuffleReport.verdict === 'light'}
+                Light mix — some suit clumps remain.
+              {:else if G.shuffleReport.verdict === 'mixed'}
+                Cards are somewhat mixed; a few suit clumps remain.
+              {:else if G.shuffleReport.verdict === 'well'}
+                Well shuffled — suits are spread out.
+              {:else}
+                Fully mixed deck.
+              {/if}
+            </p>
+          </div>
+        {/if}
         <div class="seat-list">
           {#each seats as seat}
             <div class:filled={seat.name}>
