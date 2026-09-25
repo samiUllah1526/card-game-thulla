@@ -60,6 +60,38 @@ export const config = {
     copiedFeedbackMs: 1500,
     /** Full-name tooltip stays open this long after a tap on a player chip. */
     nameTipMs: 2200,
+    /** How long the table shakes when someone becomes Bhabhi. */
+    bhabhiShakeMs: 1400,
+  },
+
+  /** Phone vibration patterns (ms: vibrate, pause, vibrate, …). No-ops on desktop. */
+  haptics: {
+    /** Sharp double-buzz when a Thulla is played. */
+    thulla: [40, 40, 90, 50, 180],
+    /** Extra kick on the phone of the player who must pick up. */
+    thullaReceiver: [60, 40, 60, 40, 120, 60, 220],
+    /** Dramatic pattern when someone is named Bhabhi. */
+    bhabhi: [80, 60, 80, 60, 160, 100, 320],
+  },
+
+  /** Playful roast when the last player left holding cards is named Bhabhi. */
+  roast: {
+    /** Taunts shown to winners watching the loser. {name} = loser display name. */
+    winnerTaunts: [
+      '{name} is the Bhabhi!',
+      'Someone call {name}… Bhabhi!',
+      '{name} got stuck with the cards!',
+      'Bhabhi alert: {name}!',
+      '{name} — last one standing. Classic.',
+    ],
+    /** Taunts shown on the loser’s own phone. */
+    loserTaunts: [
+      'You are the Bhabhi!',
+      'Welp. You’re Bhabhi.',
+      'All that and you’re still Bhabhi.',
+      'The cards chose you. Bhabhi.',
+      'Everyone’s staring. You’re Bhabhi.',
+    ],
   },
 
   server: {

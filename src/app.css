@@ -649,7 +649,84 @@ input::placeholder { color: #96a098; }
 .play-button { margin-top: 10px; }
 .game-over { display: grid; justify-items: center; gap: 8px; padding: 10px; text-align: center; }
 .game-over p { color: var(--green); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
-.game-over h2 { margin: 0; color: var(--ink); }
+.game-over h2 { margin: 0; color: var(--ink); font-size: 22px; }
+.game-over-sub {
+  max-width: 280px; text-transform: none !important; letter-spacing: 0 !important;
+  color: var(--muted) !important; font-size: 13px !important; font-weight: 700 !important; line-height: 1.35;
+}
+.game-over.loser h2 { color: #a52f35; animation: roast-wiggle 0.7s ease-in-out infinite; }
+.game-over.loser .game-over-sub { color: #7d1f23 !important; }
+
+.table-page.shaking { animation: table-shake 0.55s ease-in-out 2; }
+.table-page.finished { background: linear-gradient(165deg, #f8f5e9 0%, #f3e4d2 100%); }
+
+.opponent.bhabhi {
+  border-color: #e2a3a5; background: rgba(255, 236, 236, .95); transform: scale(1.08);
+  animation: roast-wiggle 0.85s ease-in-out infinite;
+}
+.opponent.bhabhi .avatar {
+  background: #c83e43; box-shadow: 0 0 0 5px rgba(200, 62, 67, .28);
+  animation: receive-ring 0.9s ease-in-out infinite;
+}
+.opponent.bhabhi .player-name { color: #7d1f23; background: #f9d2d3; font-weight: 900; }
+.bhabhi-tag { color: white !important; background: #c83e43 !important; }
+
+.roast-overlay {
+  position: absolute; inset: 0; z-index: 40; display: grid; place-items: center;
+  padding: 20px; background: rgba(18, 28, 22, .58); backdrop-filter: blur(3px);
+}
+.roast-card {
+  position: relative; width: min(100%, 340px); display: grid; justify-items: center; gap: 8px;
+  padding: 28px 20px 20px; border-radius: 28px; text-align: center;
+  color: var(--ink); background: linear-gradient(160deg, #fffdf6, #ffe9c8);
+  border: 2px solid #efc27a; box-shadow: 0 24px 60px rgba(40, 20, 0, .35);
+}
+.roast-overlay.loser .roast-card {
+  background: linear-gradient(160deg, #fff6f6, #ffd6d8);
+  border-color: #e39a9d; box-shadow: 0 24px 60px rgba(120, 20, 30, .35);
+}
+.roast-stamp {
+  position: absolute; top: -14px; right: 14px; padding: 6px 12px; border-radius: 8px;
+  color: white; background: #c83e43; font-size: 14px; font-weight: 950; letter-spacing: .08em;
+  box-shadow: 0 8px 18px rgba(200, 62, 67, .35);
+  animation: roast-wiggle-stamp 0.75s ease-in-out infinite;
+}
+.roast-avatar {
+  display: grid; place-items: center; width: 84px; height: 84px; border-radius: 50%;
+  color: white; background: #c83e43; font-size: 36px; font-weight: 950;
+  box-shadow: 0 0 0 8px rgba(200, 62, 67, .18); animation: land-pop 0.55s cubic-bezier(.2, 1.4, .4, 1);
+}
+.roast-kicker {
+  margin: 6px 0 0; color: #a06a12; font-size: 11px; font-weight: 900;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.roast-overlay.loser .roast-kicker { color: #a52f35; }
+.roast-name {
+  margin: 0; color: var(--ink); font-size: 28px; font-weight: 950; letter-spacing: -.03em;
+  animation: roast-wiggle 1s ease-in-out infinite;
+}
+.roast-taunt {
+  margin: 0 0 6px; max-width: 280px; color: #674e0f; font-size: 16px; font-weight: 850; line-height: 1.3;
+}
+.roast-overlay.loser .roast-taunt { color: #7d1f23; }
+.roast-dismiss { width: auto; min-width: 180px; margin-top: 4px; }
+
+@keyframes table-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  15% { transform: translate(-6px, 3px) rotate(-0.8deg); }
+  30% { transform: translate(7px, -2px) rotate(0.9deg); }
+  45% { transform: translate(-5px, -3px) rotate(-0.6deg); }
+  60% { transform: translate(6px, 2px) rotate(0.7deg); }
+  75% { transform: translate(-3px, 2px) rotate(-0.4deg); }
+}
+@keyframes roast-wiggle {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2.5deg); }
+}
+@keyframes roast-wiggle-stamp {
+  0%, 100% { transform: rotate(10deg) scale(1); }
+  50% { transform: rotate(16deg) scale(1.06); }
+}
 
 @media (min-width: 700px) {
   body { padding: 22px; }

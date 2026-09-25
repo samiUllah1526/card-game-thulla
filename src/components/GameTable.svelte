@@ -23,7 +23,7 @@
   export let connection: GameConnection
   export let onLeave: () => void
 
-  const { timing } = config
+  const { timing, haptics, roast } = config
 
   let state: GameSnapshot | null = null
   let seats: LobbySeat[] = []
@@ -44,6 +44,7 @@
   let chipEls: Record<string, HTMLElement> = {}
   let wasPending = false
   let pendingID = 0
+  let seenPickupBuzz = 0
 
   // ---- Last completed trick ----------------------------------------------
   // Stays on the table between trickDisplayMinMs and trickDisplayMaxMs.
@@ -56,12 +57,26 @@
   let openNameFor: string | null = null
   let nameTimer: number | undefined
 
+  // ---- Bhabhi roast ------------------------------------------------------
+  let roastOpen = false
+  let roastTaunt = ''
+  let shaking = false
+  let sawFinished = false
+
   const unsubscribe = connection.state.subscribe((value) => {
     const G = value?.G
     if (G) {
-      // Pickup: detect "pending -> dismissed" and start the fly-out.
+      // Pickup: buzz on a new Thulla; fly-out when the receiver dismisses.
       const pickup = G.lastPickup
       const pending = !!pickup && !pickup.dismissed
+      if (pending && pickup && pickup.id !== seenPickupBuzz) {
+        seenPickupBuzz = pickup.id
+        vibrate(
+          pickup.receiver === session.playerID
+            ? haptics.thullaReceiver
+            : haptics.thulla,
+        )
+      }
       if (wasPending && !pending && pickup && pickup.id === pendingID) {
         prepareFly(pickup)
         void runFly(pickup)
@@ -77,9 +92,42 @@
         seenTrickID = trick.id
         showTrick(trick)
       }
+
+      // Game over: one-shot roast + shake + vibration.
+      if (G.phase === 'finished' && G.bhabhi && !sawFinished) {
+        sawFinished = true
+        startRoast(G.bhabhi)
+      }
     }
     state = value
   })
+
+  function vibrate(pattern: readonly number[]) {
+    try {
+      navigator.vibrate?.([...pattern])
+    } catch {
+      // Vibration is optional; many desktops have no API.
+    }
+  }
+
+  function startRoast(bhabhiID: string) {
+    const mine = bhabhiID === session.playerID
+    const list = mine ? roast.loserTaunts : roast.winnerTaunts
+    const template = list[Math.floor(Math.random() * list.length)]
+    roastTaunt = template.replaceAll('{name}', nameFor(bhabhiID))
+    roastOpen = true
+    shaking = true
+    vibrate(haptics.bhabhi)
+    timers.push(
+      window.setTimeout(() => {
+        shaking = false
+      }, timing.bhabhiShakeMs),
+    )
+  }
+
+  function dismissRoast() {
+    roastOpen = false
+  }
 
   onDestroy(() => {
     unsubscribe()
@@ -267,7 +315,7 @@
   {@const lastEvent = G.events[G.events.length - 1]}
   {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup}
 
-  <main class="table-page">
+  <main class="table-page" class:shaking class:finished={G.phase === 'finished'}>
     <header class="table-header">
       <button class="icon-button" on:click={onLeave} aria-label="Leave table">←</button>
       <div>
@@ -337,6 +385,7 @@
             class:giver={activePickup?.giver === playerID}
             class:receiver={activePickup?.receiver === playerID}
             class:landed={landedFor === playerID}
+            class:bhabhi={G.phase === 'finished' && G.bhabhi === playerID}
             class:show-name={openNameFor === playerID}
             title={nameFor(playerID)}
             aria-label={`${nameFor(playerID)}, ${G.handCounts[playerID]} cards`}
@@ -359,6 +408,9 @@
             {/if}
             {#if activePickup?.receiver === playerID}
               <small class="tag receive-tag" in:scale={{ start: 1.8, duration: 300 }}>PICKS UP</small>
+            {/if}
+            {#if G.phase === 'finished' && G.bhabhi === playerID}
+              <small class="tag bhabhi-tag" in:scale={{ start: 2, duration: 400 }}>BHABHI</small>
             {/if}
           </button>
         {/each}
@@ -469,9 +521,10 @@
 
       <section class="hand-area" class:receiving={receivingMine} class:landed={landedFor === session.playerID}>
         {#if G.phase === 'finished'}
-          <div class="game-over">
+          <div class="game-over" class:loser={G.bhabhi === session.playerID}>
             <p>Game over</p>
             <h2>{G.bhabhi === session.playerID ? 'You are Bhabhi' : `${nameFor(G.bhabhi!)} is Bhabhi`}</h2>
+            <p class="game-over-sub">{roastTaunt || (G.bhabhi === session.playerID ? 'Better luck next deal.' : 'Point and laugh responsibly.')}</p>
             <button class="secondary" on:click={onLeave}>Back to lobby</button>
           </div>
         {:else}
@@ -519,6 +572,33 @@
           {/if}
         {/if}
       </section>
+    {/if}
+
+    {#if roastOpen && G.bhabhi}
+      <div
+        class="roast-overlay"
+        class:loser={G.bhabhi === session.playerID}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Bhabhi roast"
+        in:fade={{ duration: 180 }}
+        out:fade={{ duration: 220 }}
+      >
+        <div class="roast-card" in:scale={{ start: 0.55, duration: 520, easing: cubicOut }}>
+          <span class="roast-stamp" in:scale={{ start: 2.6, duration: 480, easing: cubicOut }}>BHABHI</span>
+          <div class="roast-avatar" aria-hidden="true">
+            {nameFor(G.bhabhi).slice(0, 1).toUpperCase()}
+          </div>
+          <p class="roast-kicker">
+            {G.bhabhi === session.playerID ? 'That’s you' : 'We have a winner… of last place'}
+          </p>
+          <h2 class="roast-name">{nameFor(G.bhabhi)}</h2>
+          <p class="roast-taunt">{roastTaunt}</p>
+          <button class="primary roast-dismiss" on:click={dismissRoast}>
+            {G.bhabhi === session.playerID ? 'Fine, I accept' : 'Keep roasting'}
+          </button>
+        </div>
+      </div>
     {/if}
   </main>
 {/if}
