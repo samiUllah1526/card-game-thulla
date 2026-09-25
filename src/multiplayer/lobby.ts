@@ -1,0 +1,70 @@
+import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
+
+const GAME = 'bhabhi-thulla'
+
+interface MatchResponse {
+  matchID: string
+  players: Array<{ id: number; name?: string }>
+}
+
+async function json<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...init?.headers },
+  })
+  const body = await response.json()
+  if (!response.ok) throw new Error(body.error ?? 'Could not reach the game server')
+  return body as T
+}
+
+export async function createMatch(
+  playerName: string,
+  numPlayers: number,
+): Promise<Session> {
+  const created = await json<{ matchID: string }>(`/games/${GAME}/create`, {
+    method: 'POST',
+    body: JSON.stringify({ numPlayers }),
+  })
+  return joinMatch(created.matchID, '0', playerName)
+}
+
+export async function joinMatch(
+  matchID: string,
+  playerID: string,
+  playerName: string,
+): Promise<Session> {
+  const joined = await json<{ playerCredentials: string }>(
+    `/games/${GAME}/${matchID}/join`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ playerID: Number(playerID), playerName }),
+    },
+  )
+  return {
+    matchID,
+    playerID,
+    playerName,
+    credentials: joined.playerCredentials,
+  }
+}
+
+export async function getSeats(matchID: string): Promise<LobbySeat[]> {
+  const match = await json<MatchResponse>(`/games/${GAME}/${matchID}`)
+  return match.players.map(({ id, name }) => ({ id, name }))
+}
+
+export function saveSession(session: Session): void {
+  localStorage.setItem('bhabhi-session', JSON.stringify(session))
+}
+
+export function loadSession(): Session | null {
+  try {
+    return JSON.parse(localStorage.getItem('bhabhi-session') ?? 'null')
+  } catch {
+    return null
+  }
+}
+
+export function clearSession(): void {
+  localStorage.removeItem('bhabhi-session')
+}

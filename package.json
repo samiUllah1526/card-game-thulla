@@ -1,0 +1,39 @@
+{
+  "name": "card-game",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n web,server -c cyan,green \"vite\" \"tsx watch src/multiplayer/server.ts\"",
+    "dev:web": "vite",
+    "dev:server": "tsx watch src/multiplayer/server.ts",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "tsx src/multiplayer/server.ts",
+    "test": "vitest run",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/koa": "^3.0.3",
+    "@types/koa__cors": "^5.0.1",
+    "@types/koa__router": "^12.0.5",
+    "@types/koa-bodyparser": "^4.3.13",
+    "@types/node": "^24.13.3",
+    "concurrently": "^10.0.5",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "@koa/router": "^15.7.0",
+    "boardgame.io": "^0.50.2",
+    "koa": "^3.2.1",
+    "koa-bodyparser": "^4.4.1"
+  }
+}
