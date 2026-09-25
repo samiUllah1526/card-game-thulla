@@ -1,5 +1,6 @@
 import { INVALID_MOVE } from 'boardgame.io/core'
 import type { Game } from 'boardgame.io'
+import { config } from '../../config'
 import {
   addEvent,
   createDeck,
@@ -8,6 +9,7 @@ import {
   hasAceOfSpades,
   isLegalPlay,
   nextActive,
+  pickupPending,
   removeCard,
   removeEmptyPlayer,
   resolveTrick,
@@ -21,6 +23,7 @@ function playCard(
 ) {
   if (!G.started || G.phase === 'finished' || playerID !== G.turnPlayer) return INVALID_MOVE
   if (G.phase !== 'preTrick' && G.phase !== 'follow') return INVALID_MOVE
+  if (pickupPending(G)) return INVALID_MOVE
 
   const hand = G.hands[playerID]
   const card = hand.find((candidate) => candidate.id === cardID)
@@ -64,9 +67,9 @@ function playCard(
 }
 
 export const BhabhiThulla: Game<BhabhiState> = {
-  name: 'bhabhi-thulla',
-  minPlayers: 3,
-  maxPlayers: 8,
+  name: config.game.name,
+  minPlayers: config.game.minPlayers,
+  maxPlayers: config.game.maxPlayers,
   disableUndo: true,
 
   setup: ({ ctx, random }) => {
@@ -84,6 +87,8 @@ export const BhabhiThulla: Game<BhabhiState> = {
       wasteCount: 0,
       trick: [],
       ledSuit: null,
+      pickupCount: 0,
+      trickCount: 0,
       active: Array.from({ length: ctx.numPlayers }, (_, index) => String(index)),
       gotAway: [],
       leader: firstLeader,
@@ -93,7 +98,7 @@ export const BhabhiThulla: Game<BhabhiState> = {
       started: false,
       hostID: '0',
       phase: 'waiting',
-      events: [{ id: 1, text: 'Waiting for the host to start' }],
+      events: [{ id: 1, type: 'waiting' }],
     }
   },
 
@@ -103,7 +108,14 @@ export const BhabhiThulla: Game<BhabhiState> = {
       G.started = true
       G.phase = 'preTrick'
       G.turnPlayer = G.firstLeader
-      addEvent(G, `Player ${Number(G.firstLeader) + 1} has the Ace of Spades`)
+      addEvent(G, { type: 'firstLead', player: G.firstLeader })
+    },
+
+    /** Only the player who picked up the Thulla can close the overlay for everyone. */
+    dismissPickup: ({ G, playerID }) => {
+      if (!G.lastPickup || G.lastPickup.dismissed) return INVALID_MOVE
+      if (playerID !== G.lastPickup.receiver) return INVALID_MOVE
+      G.lastPickup.dismissed = true
     },
 
     takeLeftHand: ({ G, playerID }) => {
@@ -112,19 +124,18 @@ export const BhabhiThulla: Game<BhabhiState> = {
         G.phase !== 'preTrick' ||
         playerID !== G.turnPlayer ||
         playerID !== G.leader ||
-        G.active.length < 2
+        G.active.length < 2 ||
+        pickupPending(G)
       ) {
         return INVALID_MOVE
       }
 
       const victim = nextActive(G.active, playerID)
+      const count = G.hands[victim].length
       G.hands[playerID].push(...G.hands[victim])
       G.hands[victim] = []
       removeEmptyPlayer(G, victim)
-      addEvent(
-        G,
-        `Player ${Number(playerID) + 1} took Player ${Number(victim) + 1}'s cards`,
-      )
+      addEvent(G, { type: 'took', taker: playerID, victim, count })
       syncCounts(G)
       const finished = finishIfNeeded(G)
       G.turnPlayer = finished ? G.active[0] : playerID

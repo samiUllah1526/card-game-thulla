@@ -1,11 +1,17 @@
 <script lang="ts">
+  import { config } from '../config'
   import { createMatch, getSeats, joinMatch, saveSession } from '../multiplayer/lobby'
   import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
 
   export let onJoined: (session: Session) => void
 
+  const seatOptions = Array.from(
+    { length: config.game.maxPlayers - config.game.minPlayers + 1 },
+    (_, index) => config.game.minPlayers + index,
+  )
+
   let playerName = ''
-  let playerCount = 4
+  let playerCount = Math.min(4, config.game.maxPlayers)
   let matchID = ''
   let seats: LobbySeat[] = []
   let selectedSeat = ''
@@ -96,7 +102,7 @@
     <label>
       <span>Number of seats</span>
       <select bind:value={playerCount}>
-        {#each [3, 4, 5, 6, 7, 8] as count}
+        {#each seatOptions as count}
           <option value={count}>{count} players</option>
         {/each}
       </select>
@@ -131,5 +137,5 @@
   </section>
 
   {#if error}<p class="error" role="alert">{error}</p>{/if}
-  <p class="footnote">3–8 human players · Each player uses their own phone</p>
+  <p class="footnote">{config.game.minPlayers}–{config.game.maxPlayers} human players · Each player uses their own phone</p>
 </main>

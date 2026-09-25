@@ -1,6 +1,8 @@
+import { config } from '../config'
 import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
 
-const GAME = 'bhabhi-thulla'
+const GAME = config.game.name
+const SESSION_KEY = config.storage.sessionKey
 
 interface MatchResponse {
   matchID: string
@@ -54,17 +56,17 @@ export async function getSeats(matchID: string): Promise<LobbySeat[]> {
 }
 
 export function saveSession(session: Session): void {
-  localStorage.setItem('bhabhi-session', JSON.stringify(session))
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
 }
 
 export function loadSession(): Session | null {
   try {
-    return JSON.parse(localStorage.getItem('bhabhi-session') ?? 'null')
+    return JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null')
   } catch {
     return null
   }
 }
 
 export function clearSession(): void {
-  localStorage.removeItem('bhabhi-session')
+  localStorage.removeItem(SESSION_KEY)
 }

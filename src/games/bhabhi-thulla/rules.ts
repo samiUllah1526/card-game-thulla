@@ -1,4 +1,5 @@
-import type { BhabhiState, Card, Rank, Suit, TrickPlay } from './types'
+import { config } from '../../config'
+import type { BhabhiState, Card, GameEvent, GameEventInput, Rank, Suit, TrickPlay } from './types'
 
 export const SUITS: Suit[] = ['S', 'H', 'D', 'C']
 export const RANKS: Rank[] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
@@ -53,12 +54,15 @@ export function removeEmptyPlayer(state: BhabhiState, playerID: string): void {
   if (state.hands[playerID].length !== 0 || !state.active.includes(playerID)) return
   state.active = state.active.filter((id) => id !== playerID)
   state.gotAway.push(playerID)
-  addEvent(state, `Player ${Number(playerID) + 1} got away`)
+  addEvent(state, { type: 'gotAway', player: playerID })
 }
 
-export function addEvent(state: BhabhiState, text: string): void {
+export function addEvent(state: BhabhiState, event: GameEventInput): void {
   const id = (state.events.at(-1)?.id ?? 0) + 1
-  state.events = [...state.events.slice(-4), { id, text }]
+  state.events = [
+    ...state.events.slice(-(config.game.eventHistory - 1)),
+    { ...event, id } as GameEvent,
+  ]
 }
 
 export function syncCounts(state: BhabhiState): void {
@@ -72,10 +76,15 @@ export function finishIfNeeded(state: BhabhiState): boolean {
   if (state.started && state.active.length === 1) {
     state.phase = 'finished'
     state.bhabhi = state.active[0]
-    addEvent(state, `Player ${Number(state.bhabhi) + 1} is Bhabhi`)
+    addEvent(state, { type: 'bhabhi', player: state.bhabhi })
     return true
   }
   return false
+}
+
+/** True while a Thulla pickup is waiting for the receiver to dismiss it. */
+export function pickupPending(state: BhabhiState): boolean {
+  return !!state.lastPickup && !state.lastPickup.dismissed
 }
 
 export function resolveTrick(state: BhabhiState, thulla: boolean): string {
@@ -89,17 +98,36 @@ export function resolveTrick(state: BhabhiState, thulla: boolean): string {
       ? state.firstLeader
       : nextActive(state.active, state.firstLeader)
     state.firstTrick = false
-    addEvent(state, 'First trick went to waste')
+    recordTrick(state, highest.playerID, ledSuit)
+    addEvent(state, { type: 'firstTrickWaste', leader: nextLeader })
   } else if (thulla) {
-    state.hands[highest.playerID].push(...state.trick.map((play) => play.card))
+    const thullaPlay = state.trick[state.trick.length - 1]
+    const cards = state.trick.map((play) => play.card)
+    state.hands[highest.playerID].push(...cards)
+    state.pickupCount += 1
+    state.lastPickup = {
+      id: state.pickupCount,
+      giver: thullaPlay.playerID,
+      receiver: highest.playerID,
+      ledSuit,
+      thullaCard: thullaPlay.card,
+      cards,
+      dismissed: false,
+    }
     nextLeader = highest.playerID
-    addEvent(state, `Thulla! Player ${Number(highest.playerID) + 1} picked up the trick`)
+    addEvent(state, {
+      type: 'thulla',
+      giver: thullaPlay.playerID,
+      receiver: highest.playerID,
+      count: cards.length,
+    })
   } else {
     state.waste.push(...state.trick.map((play) => play.card))
     nextLeader = state.active.includes(highest.playerID)
       ? highest.playerID
       : nextActive(state.active, highest.playerID)
-    addEvent(state, `Player ${Number(highest.playerID) + 1} won the trick`)
+    recordTrick(state, highest.playerID, ledSuit)
+    addEvent(state, { type: 'trickWon', winner: highest.playerID })
   }
 
   state.trick = []
@@ -108,4 +136,14 @@ export function resolveTrick(state: BhabhiState, thulla: boolean): string {
   state.phase = 'preTrick'
   syncCounts(state)
   return nextLeader
+}
+
+function recordTrick(state: BhabhiState, winner: string, ledSuit: Suit): void {
+  state.trickCount += 1
+  state.lastTrick = {
+    id: state.trickCount,
+    plays: state.trick.map((play) => ({ ...play })),
+    winner,
+    ledSuit,
+  }
 }

@@ -1,6 +1,19 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
-  import type { BhabhiState, Card, LobbySeat, Session, Suit } from '../games/bhabhi-thulla/types'
+  import { flip } from 'svelte/animate'
+  import { fade, fly, scale } from 'svelte/transition'
+  import { cubicIn, cubicOut } from 'svelte/easing'
+  import { config } from '../config'
+  import type {
+    BhabhiState,
+    Card,
+    GameEvent,
+    LobbySeat,
+    PickupEvent,
+    ResolvedTrick,
+    Session,
+    Suit,
+  } from '../games/bhabhi-thulla/types'
   import type { GameConnection, GameSnapshot } from '../multiplayer/gameClient'
   import { getSeats } from '../multiplayer/lobby'
   import { legalCards } from '../games/bhabhi-thulla/rules'
@@ -9,23 +22,137 @@
   export let connection: GameConnection
   export let onLeave: () => void
 
+  const { timing } = config
+
   let state: GameSnapshot | null = null
   let seats: LobbySeat[] = []
   let selectedCard = ''
   let copied = false
   let poll: number | undefined
+  let timers: number[] = []
 
-  const unsubscribe = connection.state.subscribe((value) => (state = value))
+  // ---- Thulla pickup ------------------------------------------------------
+  // The overlay is driven by server state (lastPickup.dismissed). When the
+  // receiver dismisses it, every client plays the same "fly to receiver" exit.
+  let flyingPickup: PickupEvent | null = null
+  let flyTo = { x: 0, y: 0 }
+  let receivedIDs = new Set<string>()
+  let landedFor: string | null = null
+  let overlayEl: HTMLElement | undefined
+  let handEl: HTMLElement | undefined
+  let chipEls: Record<string, HTMLElement> = {}
+  let wasPending = false
+  let pendingID = 0
+
+  // ---- Last completed trick ----------------------------------------------
+  // Stays on the table between trickDisplayMinMs and trickDisplayMaxMs.
+  let shownTrick: ResolvedTrick | null = null
+  let trickLocked = false
+  let seenTrickID: number | null = null
+  let trickTimers: number[] = []
+
+  // ---- Full-name tooltip on player chips ---------------------------------
+  let openNameFor: string | null = null
+  let nameTimer: number | undefined
+
+  const unsubscribe = connection.state.subscribe((value) => {
+    const G = value?.G
+    if (G) {
+      // Pickup: detect "pending -> dismissed" and start the fly-out.
+      const pickup = G.lastPickup
+      const pending = !!pickup && !pickup.dismissed
+      if (wasPending && !pending && pickup && pickup.id === pendingID) {
+        prepareFly(pickup)
+        void runFly(pickup)
+      }
+      wasPending = pending
+      pendingID = pickup?.id ?? 0
+
+      // Completed trick: show it when a new one is recorded.
+      const trick = G.lastTrick
+      if (seenTrickID === null) {
+        seenTrickID = trick?.id ?? 0
+      } else if (trick && trick.id !== seenTrickID) {
+        seenTrickID = trick.id
+        showTrick(trick)
+      }
+    }
+    state = value
+  })
+
   onDestroy(() => {
     unsubscribe()
     if (poll) window.clearInterval(poll)
+    if (nameTimer) window.clearTimeout(nameTimer)
+    ;[...timers, ...trickTimers].forEach((id) => window.clearTimeout(id))
   })
 
   onMount(() => {
     refreshSeats()
-    poll = window.setInterval(refreshSeats, 2500)
+    poll = window.setInterval(refreshSeats, timing.seatPollMs)
   })
 
+  function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      timers.push(window.setTimeout(resolve, ms))
+    })
+  }
+
+  function prepareFly(event: PickupEvent) {
+    const mine = event.receiver === session.playerID
+    const target = mine ? handEl : chipEls[event.receiver]
+    if (overlayEl && target) {
+      const from = overlayEl.getBoundingClientRect()
+      const to = target.getBoundingClientRect()
+      flyTo = {
+        x: to.left + to.width / 2 - (from.left + from.width / 2),
+        y: to.top + to.height / 2 - (from.top + from.height / 2),
+      }
+    } else {
+      flyTo = { x: 0, y: mine ? 260 : -220 }
+    }
+    flyingPickup = event
+  }
+
+  async function runFly(event: PickupEvent) {
+    await wait(timing.pickupFlyMs + timing.pickupFlyStaggerMs * event.cards.length)
+    flyingPickup = null
+    receivedIDs = new Set(event.cards.map((card) => card.id))
+    landedFor = event.receiver
+    await wait(timing.receivedGlowMs)
+    receivedIDs = new Set()
+    landedFor = null
+  }
+
+  function showTrick(trick: ResolvedTrick) {
+    trickTimers.forEach((id) => window.clearTimeout(id))
+    shownTrick = trick
+    trickLocked = true
+    trickTimers = [
+      window.setTimeout(() => (trickLocked = false), timing.trickDisplayMinMs),
+      window.setTimeout(() => {
+        if (shownTrick?.id === trick.id) shownTrick = null
+      }, timing.trickDisplayMaxMs),
+    ]
+  }
+
+  /** Custom transition: slide toward (x, y) and shrink, staying opaque until the end. */
+  function flyToTarget(
+    _node: Element,
+    params: { x: number; y: number; duration: number; delay: number },
+  ) {
+    return {
+      duration: params.duration,
+      delay: params.delay,
+      easing: cubicIn,
+      css: (t: number) => {
+        const p = 1 - t
+        return `transform: translate(${p * params.x}px, ${p * params.y}px) scale(${1 - p * 0.55}); opacity: ${t < 0.15 ? t / 0.15 : 1}`
+      },
+    }
+  }
+
+  // ---- Helpers -----------------------------------------------------------
   async function refreshSeats() {
     try {
       seats = await getSeats(session.matchID)
@@ -38,6 +165,10 @@
     return seats.find((seat) => String(seat.id) === playerID)?.name ?? `Player ${Number(playerID) + 1}`
   }
 
+  function suitName(suit: Suit): string {
+    return { S: 'Spades', H: 'Hearts', D: 'Diamonds', C: 'Clubs' }[suit]
+  }
+
   function cardLabel(card: Card): string {
     const ranks: Record<number, string> = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' }
     const suits: Record<Suit, string> = { S: '♠', H: '♥', D: '♦', C: '♣' }
@@ -46,6 +177,27 @@
 
   function isRed(card: Card): boolean {
     return card.suit === 'H' || card.suit === 'D'
+  }
+
+  function describe(event: GameEvent): string {
+    switch (event.type) {
+      case 'waiting':
+        return 'Waiting for the host to start'
+      case 'firstLead':
+        return `${nameFor(event.player)} has the Ace of Spades and leads`
+      case 'firstTrickWaste':
+        return `First trick goes to waste — ${nameFor(event.leader)} leads again`
+      case 'trickWon':
+        return `${nameFor(event.winner)} won the trick`
+      case 'thulla':
+        return `Thulla! ${nameFor(event.giver)} gave ${event.count} cards to ${nameFor(event.receiver)}`
+      case 'gotAway':
+        return `${nameFor(event.player)} got away`
+      case 'took':
+        return `${nameFor(event.taker)} took all ${event.count} of ${nameFor(event.victim)}’s cards`
+      case 'bhabhi':
+        return `${nameFor(event.player)} is Bhabhi`
+    }
   }
 
   function selectCard(card: Card, legal: Set<string>) {
@@ -62,17 +214,38 @@
   async function copyCode() {
     await navigator.clipboard.writeText(session.matchID)
     copied = true
-    window.setTimeout(() => (copied = false), 1500)
+    window.setTimeout(() => (copied = false), timing.copiedFeedbackMs)
   }
 
-  function statusText(G: BhabhiState): string {
+  function toggleName(playerID: string) {
+    if (nameTimer) window.clearTimeout(nameTimer)
+    openNameFor = openNameFor === playerID ? null : playerID
+    if (openNameFor) nameTimer = window.setTimeout(() => (openNameFor = null), timing.nameTipMs)
+  }
+
+  function statusText(G: BhabhiState, pendingPickup: PickupEvent | null, canAct: boolean): string {
     if (G.phase === 'finished') return `${nameFor(G.bhabhi!)} is Bhabhi`
     if (!G.started) return session.playerID === '0' ? 'Start when everyone has joined' : 'Waiting for the host'
+    if (pendingPickup) {
+      return pendingPickup.receiver === session.playerID
+        ? `You picked up ${pendingPickup.cards.length} cards — tap Continue`
+        : `${nameFor(pendingPickup.receiver)} picks up ${pendingPickup.cards.length} cards`
+    }
     if (G.turnPlayer === session.playerID) {
+      if (!canAct) return 'Get ready — your lead is next'
       if (G.phase === 'preTrick') return 'You have the power — lead a card'
-      return G.ledSuit ? `Your turn — follow ${G.ledSuit}` : 'Your turn'
+      return G.ledSuit ? `Your turn — follow ${suitName(G.ledSuit)}` : 'Your turn'
     }
     return `${nameFor(G.turnPlayer)} is playing`
+  }
+
+  function registerChip(node: HTMLElement, playerID: string) {
+    chipEls[playerID] = node
+    return {
+      destroy() {
+        delete chipEls[playerID]
+      },
+    }
   }
 </script>
 
@@ -80,9 +253,18 @@
   <main class="loading page"><div class="spinner"></div><p>Connecting to the table…</p></main>
 {:else}
   {@const G = state.G}
-  {@const myHand = [...(G.hands[session.playerID] ?? [])].sort((a, b) => a.suit.localeCompare(b.suit) || a.rank - b.rank)}
+  {@const pendingPickup = G.lastPickup && !G.lastPickup.dismissed ? G.lastPickup : null}
+  {@const activePickup = pendingPickup ?? flyingPickup}
+  {@const receivingMine = activePickup?.receiver === session.playerID}
+  {@const hiddenIDs = new Set(receivingMine ? activePickup!.cards.map((card) => card.id) : [])}
+  {@const myHand = [...(G.hands[session.playerID] ?? [])]
+    .filter((card) => !hiddenIDs.has(card.id))
+    .sort((a, b) => a.suit.localeCompare(b.suit) || a.rank - b.rank)}
   {@const legal = new Set(legalCards(myHand, G.ledSuit).map((card) => card.id))}
-  {@const myTurn = G.started && G.turnPlayer === session.playerID && G.phase !== 'finished'}
+  {@const isMyTurn = G.started && G.turnPlayer === session.playerID && G.phase !== 'finished'}
+  {@const canAct = isMyTurn && !activePickup && !(trickLocked && shownTrick && G.trick.length === 0)}
+  {@const lastEvent = G.events[G.events.length - 1]}
+  {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup}
 
   <main class="table-page">
     <header class="table-header">
@@ -111,7 +293,7 @@
         {#if session.playerID === '0'}
           <button
             class="primary"
-            disabled={seats.length < 3 || seats.some((seat) => !seat.name)}
+            disabled={seats.length < config.game.minPlayers || seats.some((seat) => !seat.name)}
             on:click={connection.moves.startGame}
           >Start game</button>
         {:else}
@@ -120,43 +302,146 @@
       </section>
     {:else}
       <section class="opponents" aria-label="Other players">
-        {#each G.active.filter((id) => id !== session.playerID) as playerID}
-          <div class:turn={G.turnPlayer === playerID} class:power={G.leader === playerID} class="opponent">
+        {#each G.active.filter((id) => id !== session.playerID) as playerID (playerID)}
+          <button
+            type="button"
+            class="opponent"
+            class:turn={G.turnPlayer === playerID && !activePickup}
+            class:power={G.leader === playerID}
+            class:giver={activePickup?.giver === playerID}
+            class:receiver={activePickup?.receiver === playerID}
+            class:landed={landedFor === playerID}
+            class:show-name={openNameFor === playerID}
+            title={nameFor(playerID)}
+            aria-label={`${nameFor(playerID)}, ${G.handCounts[playerID]} cards`}
+            on:click={() => toggleName(playerID)}
+            use:registerChip={playerID}
+            animate:flip={{ duration: 300 }}
+          >
+            <span class="name-tip" role="tooltip">{nameFor(playerID)}</span>
             <div class="avatar">{nameFor(playerID).slice(0, 1).toUpperCase()}</div>
-            <strong>{nameFor(playerID)}</strong>
-            <span>▰ {G.handCounts[playerID]}</span>
-            {#if G.leader === playerID}<small>POWER</small>{/if}
-          </div>
+            <strong class="player-name">{nameFor(playerID)}</strong>
+            <span class="count">
+              ▰ {G.handCounts[playerID]}
+              {#if landedFor === playerID && receivedIDs.size}
+                <em class="bump" in:fly={{ y: 10, duration: 250 }} out:fade>+{receivedIDs.size}</em>
+              {/if}
+            </span>
+            {#if G.leader === playerID && !activePickup}<small class="tag power-tag">POWER</small>{/if}
+            {#if activePickup?.giver === playerID}
+              <small class="tag thulla-tag" in:scale={{ start: 1.8, duration: 300 }}>THULLA</small>
+            {/if}
+            {#if activePickup?.receiver === playerID}
+              <small class="tag receive-tag" in:scale={{ start: 1.8, duration: 300 }}>PICKS UP</small>
+            {/if}
+          </button>
         {/each}
-        {#each G.gotAway.filter((id) => id !== session.playerID) as playerID}
-          <div class="opponent escaped">
-            <div class="avatar">✓</div><strong>{nameFor(playerID)}</strong><span>Got away</span>
-          </div>
+        {#each G.gotAway.filter((id) => id !== session.playerID) as playerID (playerID)}
+          <button
+            type="button"
+            class="opponent escaped"
+            class:show-name={openNameFor === playerID}
+            title={nameFor(playerID)}
+            on:click={() => toggleName(playerID)}
+            animate:flip={{ duration: 300 }}
+          >
+            <span class="name-tip" role="tooltip">{nameFor(playerID)}</span>
+            <div class="avatar">✓</div><strong class="player-name">{nameFor(playerID)}</strong><span>Got away</span>
+          </button>
         {/each}
       </section>
 
       <section class="play-area">
-        <div class="status" class:mine={myTurn}>
-          <span class="status-dot"></span>{statusText(G)}
+        <div class="status" class:mine={canAct}>
+          <span class="status-dot"></span>
+          {statusText(G, pendingPickup, canAct)}
         </div>
+
         <div class="trick">
-          {#if G.trick.length === 0}
-            <div class="empty-trick"><span>♠</span><p>Waiting for the lead</p></div>
+          {#if G.trick.length === 0 && !showLastTrick && !activePickup}
+            <div class="empty-trick" in:fade={{ duration: 200 }}><span>♠</span><p>Waiting for the lead</p></div>
+          {:else if showLastTrick && shownTrick}
+            <div class="resolved-trick" out:fade={{ duration: 250 }}>
+              {#each shownTrick.plays as play (play.playerID)}
+                <div class="played-card" class:winner={play.playerID === shownTrick.winner}>
+                  <small class:highlight={play.playerID === shownTrick.winner} title={nameFor(play.playerID)}>
+                    {nameFor(play.playerID)}
+                  </small>
+                  <div class:red={isRed(play.card)} class="card-face">{cardLabel(play.card)}</div>
+                  {#if play.playerID === shownTrick.winner}<b class="win-tag">WINS</b>{/if}
+                </div>
+              {/each}
+              <p class="resolved-note">
+                Trick goes to waste
+                {#if trickLocked}
+                  · clearing soon
+                {:else if G.turnPlayer === session.playerID}
+                  · play a card to continue
+                {/if}
+              </p>
+            </div>
           {:else}
             {#each G.trick as play (play.playerID)}
-              <div class="played-card">
-                <small>{nameFor(play.playerID)}</small>
+              <div class="played-card" in:fly={{ y: 60, duration: 320, easing: cubicOut }}>
+                <small class:highlight={G.turnPlayer === play.playerID} title={nameFor(play.playerID)}>
+                  {nameFor(play.playerID)}
+                </small>
                 <div class:red={isRed(play.card)} class="card-face">{cardLabel(play.card)}</div>
               </div>
             {/each}
           {/if}
+
+          {#if pendingPickup}
+            <div class="pickup-overlay" bind:this={overlayEl} in:fade={{ duration: 150 }}>
+              <div class="thulla-badge" in:scale={{ start: 2.4, duration: 420, easing: cubicOut }} out:fade={{ duration: 150 }}>
+                THULLA!
+              </div>
+              <p class="pickup-title" in:fly={{ y: 12, duration: 300, delay: 150 }} out:fade={{ duration: 120 }}>
+                {nameFor(pendingPickup.giver)} could not follow {suitName(pendingPickup.ledSuit)}
+              </p>
+              <div class="pickup-cards">
+                {#each pendingPickup.cards as card, index (card.id)}
+                  <div
+                    class="card-face pickup-card"
+                    class:red={isRed(card)}
+                    class:thulla={card.id === pendingPickup.thullaCard.id}
+                    in:fly={{ y: -24, duration: 260, delay: 80 * index }}
+                    out:flyToTarget={{ x: flyTo.x, y: flyTo.y, duration: timing.pickupFlyMs, delay: timing.pickupFlyStaggerMs * index }}
+                  >
+                    {cardLabel(card)}
+                    {#if card.id === pendingPickup.thullaCard.id}<span class="tag thulla-tag">THULLA</span>{/if}
+                  </div>
+                {/each}
+              </div>
+              <p class="pickup-sub" in:fade={{ delay: 400 }} out:fade={{ duration: 120 }}>
+                <strong>{nameFor(pendingPickup.receiver)}</strong> picks up {pendingPickup.cards.length} cards
+              </p>
+              {#if pendingPickup.receiver === session.playerID}
+                <button class="primary continue-button" on:click={connection.moves.dismissPickup} in:fly={{ y: 16, duration: 300, delay: 500 }} out:fade={{ duration: 120 }}>
+                  Continue
+                </button>
+              {:else}
+                <p class="pickup-wait" in:fade={{ delay: 600 }} out:fade={{ duration: 120 }}>
+                  Waiting for {nameFor(pendingPickup.receiver)} to continue…
+                </p>
+              {/if}
+            </div>
+          {/if}
         </div>
-        {#if G.events.length}
-          <p class="event">{G.events[G.events.length - 1].text}</p>
+
+        {#if lastEvent && !pendingPickup}
+          {#key lastEvent.id}
+            <div class="event-banner" class:thulla={lastEvent.type === 'thulla'} class:bhabhi={lastEvent.type === 'bhabhi'} in:fly={{ y: 14, duration: 320, easing: cubicOut }}>
+              <span class="event-icon">
+                {#if lastEvent.type === 'thulla'}!{:else if lastEvent.type === 'gotAway'}✓{:else if lastEvent.type === 'bhabhi'}★{:else}♠{/if}
+              </span>
+              {describe(lastEvent)}
+            </div>
+          {/key}
         {/if}
       </section>
 
-      <section class="hand-area">
+      <section class="hand-area" class:receiving={receivingMine} class:landed={landedFor === session.playerID}>
         {#if G.phase === 'finished'}
           <div class="game-over">
             <p>Game over</p>
@@ -165,30 +450,46 @@
           </div>
         {:else}
           <div class="hand-head">
-            <span>Your hand</span><strong>{myHand.length} cards</strong>
+            <span class:highlight={canAct}>{canAct ? 'Your turn' : 'Your hand'}</span>
+            <strong>
+              {myHand.length} cards
+              {#if landedFor === session.playerID && receivedIDs.size}
+                <em class="bump" in:fly={{ y: 8, duration: 250 }} out:fade>+{receivedIDs.size} picked up</em>
+              {/if}
+            </strong>
           </div>
-          {#if myTurn && G.phase === 'preTrick'}
+          {#if receivingMine && activePickup}
+            <div class="received-banner" in:fly={{ y: 20, duration: 300 }} out:fade={{ duration: 200 }}>
+              You picked up the Thulla — {activePickup.cards.length} cards added
+            </div>
+          {/if}
+          {#if canAct && G.phase === 'preTrick'}
             <button class="take-button" on:click={connection.moves.takeLeftHand}>
               Take {nameFor(G.active[(G.active.indexOf(session.playerID) + 1) % G.active.length])}’s cards
             </button>
           {/if}
-          <div class="hand" aria-label="Your cards">
+          <div class="hand" aria-label="Your cards" bind:this={handEl}>
             {#each myHand as card (card.id)}
               <button
                 class="playing-card"
                 class:red={isRed(card)}
                 class:selected={selectedCard === card.id}
-                class:illegal={!myTurn || !legal.has(card.id)}
+                class:illegal={!canAct || !legal.has(card.id)}
+                class:received={receivedIDs.has(card.id)}
                 on:click={() => selectCard(card, legal)}
-                disabled={!myTurn || !legal.has(card.id)}
+                disabled={!canAct || !legal.has(card.id)}
+                in:fly={{ y: -50, duration: 380, easing: cubicOut }}
+                animate:flip={{ duration: 320 }}
               >
                 <span>{cardLabel(card)}</span>
                 <b>{cardLabel(card).slice(-1)}</b>
               </button>
             {/each}
           </div>
-          {#if selectedCard}
-            <button class="primary play-button" on:click={playSelected}>Play selected card</button>
+          {#if selectedCard && canAct}
+            <button class="primary play-button" on:click={playSelected} in:fly={{ y: 10, duration: 200 }}>
+              Play selected card
+            </button>
           {/if}
         {/if}
       </section>
