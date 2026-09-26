@@ -83,10 +83,10 @@
 
 <main class="lobby page">
   <header class="brand">
-    <div class="logo-mark">BT</div>
+    <div class="logo-mark">{config.game.mark}</div>
     <div>
       <p class="eyebrow">The classic escape game</p>
-      <h1>Bhabhi Thulla</h1>
+      <h1>{config.game.title}</h1>
     </div>
   </header>
 

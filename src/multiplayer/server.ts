@@ -14,5 +14,5 @@ const server = Server({
 })
 
 server.run(port, () => {
-  console.log(`Bhabhi Thulla server listening on http://localhost:${port}`)
+  console.log(`${config.game.title} server listening on http://localhost:${port}`)
 })

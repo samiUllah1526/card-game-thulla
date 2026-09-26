@@ -4,8 +4,18 @@
  */
 export const config = {
   game: {
-    /** boardgame.io game name; also used in lobby API URLs. */
-    name: 'bhabhi-thulla',
+    /**
+     * Human-facing product name (lobby, page title, server logs).
+     * Change this when you rebrand; keep `name` in sync for the API slug.
+     */
+    title: 'Thulla Express',
+    /** Short logo mark on the lobby (usually initials). */
+    mark: 'TE',
+    /**
+     * boardgame.io game id and lobby API path (`/games/<name>/…`).
+     * Changing this starts a new game identity (old match URLs stop working).
+     */
+    name: 'thulla-express',
     minPlayers: 3,
     maxPlayers: 8,
     /** How many recent events the server keeps in state. */
@@ -115,7 +125,8 @@ export const config = {
   },
 
   storage: {
-    sessionKey: 'bhabhi-session',
+    /** localStorage key for the seated player session. */
+    sessionKey: 'thulla-express-session',
   },
 
   chat: {
@@ -124,7 +135,7 @@ export const config = {
     /** How many messages to keep in memory / sessionStorage. */
     historyCap: 80,
     /** sessionStorage key prefix; matchID is appended. */
-    storageKey: 'bhabhi-chat',
+    storageKey: 'thulla-express-chat',
   },
 } as const
 

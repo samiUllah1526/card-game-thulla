@@ -9,13 +9,14 @@
  */
 import { Client } from 'boardgame.io/client'
 import { SocketIO } from 'boardgame.io/multiplayer'
+import { writeFileSync } from 'node:fs'
+import { config } from './src/config'
 import { BhabhiThulla } from './src/games/bhabhi-thulla/game'
 import { legalCards } from './src/games/bhabhi-thulla/rules'
 import type { BhabhiState, Session } from './src/games/bhabhi-thulla/types'
-import { writeFileSync } from 'node:fs'
 
 const server = process.env.BOT_SERVER ?? 'http://localhost:8000'
-const GAME = 'bhabhi-thulla'
+const GAME = config.game.name
 const watch = process.argv.includes('--watch')
 const DELAY = Number(process.env.BOT_DELAY ?? (watch ? 2200 : 500))
 const WATCH_WAIT_MS = Number(process.env.BOT_WATCH_WAIT_MS ?? 10000)
