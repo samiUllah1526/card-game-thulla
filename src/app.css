@@ -824,6 +824,23 @@ button.pulse {
 }
 .game-over.loser h2 { color: #a52f35; animation: roast-wiggle 0.7s ease-in-out infinite; }
 .game-over.loser .game-over-sub { color: #7d1f23 !important; }
+.deal-history {
+  list-style: none; margin: 4px 0 0; padding: 0; width: 100%; max-width: 280px;
+  display: grid; gap: 4px;
+}
+.deal-history li {
+  color: var(--ink); font-size: 12px; font-weight: 700; text-transform: none; letter-spacing: 0;
+  background: rgba(255, 255, 255, .55); border-radius: 8px; padding: 6px 10px;
+}
+.deal-tally {
+  margin: 0 !important; max-width: 280px;
+  text-transform: none !important; letter-spacing: 0 !important;
+  color: var(--muted) !important; font-size: 12px !important; font-weight: 700 !important;
+}
+.game-over-actions {
+  display: grid; gap: 8px; width: 100%; max-width: 260px; margin-top: 6px;
+}
+.game-over-actions .waiting-pill { min-height: 44px; border-radius: 12px; }
 
 .table-page.shaking { animation: table-shake 0.55s ease-in-out 2; }
 .table-page.finished { background: linear-gradient(165deg, #f8f5e9 0%, #f3e4d2 100%); }

@@ -96,6 +96,14 @@ export interface ShuffleReport {
   verdictLabel: string
 }
 
+/** One finished deal on this table (survives Play again). */
+export interface DealResult {
+  deal: number
+  bhabhi: string
+  gotAway: string[]
+  at: number
+}
+
 export interface BhabhiState {
   hands: Record<string, Card[]>
   handCounts: Record<string, number>
@@ -124,6 +132,8 @@ export interface BhabhiState {
   lastTakeReject?: TakeRejectRoast
   /** Seats that unlocked full-hand peek (stripped from other clients' playerView). */
   peekers?: Record<string, boolean>
+  /** Finished deals on this match; kept across Play again. */
+  dealHistory: DealResult[]
   winner?: string
   bhabhi?: string
 }

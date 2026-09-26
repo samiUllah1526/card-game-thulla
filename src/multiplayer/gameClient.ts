@@ -19,6 +19,7 @@ export interface GameConnection {
   sendChat: (text: string) => boolean
   moves: {
     startGame: () => void
+    playAgain: () => void
     takeLeftHand: () => void
     playCard: (cardID: string) => void
     dismissPickup: () => void
@@ -77,6 +78,7 @@ export function connectGame(session: Session): GameConnection {
     },
     moves: {
       startGame: () => client.moves.startGame(),
+      playAgain: () => client.moves.playAgain(),
       takeLeftHand: () => client.moves.takeLeftHand(),
       playCard: (cardID) => client.moves.playCard(cardID),
       dismissPickup: () => client.moves.dismissPickup(),

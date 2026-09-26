@@ -171,6 +171,17 @@
         sawFinished = true
         startRoast(G.bhabhi)
       }
+
+      // Rematch: clear one-shot UI so the next ending can roast again.
+      if (G.phase !== 'finished' && sawFinished) {
+        sawFinished = false
+        roastOpen = false
+        roastTaunt = ''
+        selectedCard = ''
+        shownTrick = null
+        trickLocked = false
+        seenTrickID = G.lastTrick?.id ?? 0
+      }
     }
     state = value
   })
@@ -481,6 +492,15 @@
   {@const nextVictim = G.active[(G.active.indexOf(session.playerID) + 1) % G.active.length]}
   {@const lastEvent = G.events[G.events.length - 1]}
   {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup && !pendingTake && !pendingReject}
+  {@const bhabhiTally = (() => {
+    const counts = new Map<string, number>()
+    for (const result of G.dealHistory ?? []) {
+      counts.set(result.bhabhi, (counts.get(result.bhabhi) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([id, count]) => `${nameFor(id)} ×${count}`)
+  })()}
 
   <div class="table-shell" class:waiting={!G.started} class:playing={G.started}>
   <main class="table-page" class:shaking class:finished={G.phase === 'finished'}>
@@ -692,7 +712,24 @@
             <p>Game over</p>
             <h2>{G.bhabhi === session.playerID ? 'You are Bhabhi' : `${nameFor(G.bhabhi!)} is Bhabhi`}</h2>
             <p class="game-over-sub">{roastTaunt || (G.bhabhi === session.playerID ? 'Better luck next deal.' : 'Point and laugh responsibly.')}</p>
-            <button class="secondary" on:click={onLeave}>Back to lobby</button>
+            {#if G.dealHistory?.length}
+              <ul class="deal-history">
+                {#each G.dealHistory as result (result.deal)}
+                  <li>Deal {result.deal} — {nameFor(result.bhabhi)} is Bhabhi</li>
+                {/each}
+              </ul>
+              {#if bhabhiTally.length}
+                <p class="deal-tally">{bhabhiTally.join(' · ')}</p>
+              {/if}
+            {/if}
+            <div class="game-over-actions">
+              {#if session.playerID === '0'}
+                <button class="primary" on:click={connection.moves.playAgain}>Play again</button>
+              {:else}
+                <div class="waiting-pill">Waiting for the host to play again…</div>
+              {/if}
+              <button class="secondary" on:click={onLeave}>Back to lobby</button>
+            </div>
           </div>
         {:else}
           <div class="hand-head">

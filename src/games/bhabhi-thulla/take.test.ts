@@ -46,6 +46,7 @@ function preTrickState(overrides: Partial<BhabhiState> = {}): BhabhiState {
     },
     takeRequiresPermission: false,
     takeCount: 0,
+    dealHistory: [],
     ...overrides,
   }
 }

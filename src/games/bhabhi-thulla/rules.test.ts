@@ -49,6 +49,7 @@ function stateWithTrick(): BhabhiState {
     },
     takeRequiresPermission: false,
     takeCount: 0,
+    dealHistory: [],
   }
 }
 

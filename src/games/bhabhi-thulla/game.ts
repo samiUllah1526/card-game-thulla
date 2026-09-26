@@ -19,8 +19,66 @@ import {
 } from './rules'
 import { filterPlayerView, expectedPeekPassword } from './peek'
 import { peekLog } from './peekLog'
-import { orderedDeck, shuffleDeck, shuffleReport } from './shuffle'
-import type { BhabhiState, SetupData } from './types'
+import { orderedDeck, shuffleDeck, shuffleReport, type ShuffleRandom } from './shuffle'
+import type { BhabhiState, DealResult, SetupData } from './types'
+
+export interface CreateDealtOpts {
+  numPlayers: number
+  random: ShuffleRandom
+  setupData?: SetupData
+  /** Carry-over across Play again. */
+  dealHistory?: DealResult[]
+  peekers?: Record<string, boolean>
+  /** When true, skip waiting and start the new deal immediately. */
+  autoStart?: boolean
+}
+
+/** Shuffle, deal, and build a fresh table state (setup or rematch). */
+export function createDealtState(opts: CreateDealtOpts): BhabhiState {
+  const options = {
+    algorithm: opts.setupData?.shuffleAlgorithm,
+    scale: opts.setupData?.shuffleScale,
+  }
+  const original = orderedDeck()
+  const shuffled = shuffleDeck(original, options, opts.random)
+  const hands = deal(shuffled, opts.numPlayers)
+  const firstLeader =
+    Object.entries(hands).find(([, hand]) => hasAceOfSpades(hand))?.[0] ?? '0'
+  const handCounts = Object.fromEntries(
+    Object.entries(hands).map(([id, hand]) => [id, hand.length]),
+  )
+  const autoStart = !!opts.autoStart
+
+  const state: BhabhiState = {
+    hands,
+    handCounts,
+    waste: [],
+    wasteCount: 0,
+    trick: [],
+    ledSuit: null,
+    pickupCount: 0,
+    trickCount: 0,
+    active: Array.from({ length: opts.numPlayers }, (_, index) => String(index)),
+    gotAway: [],
+    leader: firstLeader,
+    turnPlayer: autoStart ? firstLeader : '0',
+    firstLeader,
+    firstTrick: true,
+    started: autoStart,
+    hostID: '0',
+    phase: autoStart ? 'preTrick' : 'waiting',
+    events: autoStart
+      ? [{ id: 1, type: 'firstLead', player: firstLeader }]
+      : [{ id: 1, type: 'waiting' }],
+    shuffleReport: shuffleReport(original, shuffled, options),
+    takeRequiresPermission:
+      opts.setupData?.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
+    takeCount: 0,
+    peekers: opts.peekers ? { ...opts.peekers } : {},
+    dealHistory: opts.dealHistory ? [...opts.dealHistory] : [],
+  }
+  return state
+}
 
 function playCard(
   { G, playerID }: { G: BhabhiState; playerID: string },
@@ -51,7 +109,7 @@ function playCard(
   syncCounts(G)
 
   if (finishIfNeeded(G)) {
-    G.turnPlayer = G.active[0]
+    G.turnPlayer = G.hostID
     return
   }
 
@@ -88,46 +146,12 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
   maxPlayers: config.game.maxPlayers,
   disableUndo: true,
 
-  setup: ({ ctx, random }, setupData) => {
-    const options = {
-      algorithm: setupData?.shuffleAlgorithm,
-      scale: setupData?.shuffleScale,
-    }
-    const original = orderedDeck()
-    const shuffled = shuffleDeck(original, options, random)
-    const hands = deal(shuffled, ctx.numPlayers)
-    const firstLeader =
-      Object.entries(hands).find(([, hand]) => hasAceOfSpades(hand))?.[0] ?? '0'
-    const handCounts = Object.fromEntries(
-      Object.entries(hands).map(([id, hand]) => [id, hand.length]),
-    )
-
-    return {
-      hands,
-      handCounts,
-      waste: [],
-      wasteCount: 0,
-      trick: [],
-      ledSuit: null,
-      pickupCount: 0,
-      trickCount: 0,
-      active: Array.from({ length: ctx.numPlayers }, (_, index) => String(index)),
-      gotAway: [],
-      leader: firstLeader,
-      turnPlayer: '0',
-      firstLeader,
-      firstTrick: true,
-      started: false,
-      hostID: '0',
-      phase: 'waiting',
-      events: [{ id: 1, type: 'waiting' }],
-      shuffleReport: shuffleReport(original, shuffled, options),
-      takeRequiresPermission:
-        setupData?.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
-      takeCount: 0,
-      peekers: {},
-    }
-  },
+  setup: ({ ctx, random }, setupData) =>
+    createDealtState({
+      numPlayers: ctx.numPlayers,
+      random,
+      setupData,
+    }),
 
   moves: {
     startGame: ({ G, playerID }) => {
@@ -136,6 +160,39 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
       G.phase = 'preTrick'
       G.turnPlayer = G.firstLeader
       addEvent(G, { type: 'firstLead', player: G.firstLeader })
+    },
+
+    /**
+     * Host rematch after a finished deal. Redeals the same table and starts
+     * immediately. On finish we hand the turn to the host so this move is legal.
+     * Server-only so the new shuffle uses the server RNG.
+     */
+    playAgain: {
+      client: false,
+      move: ({ G, ctx, playerID, random }) => {
+        if (G.phase !== 'finished' || playerID !== G.hostID) return INVALID_MOVE
+
+        const next = createDealtState({
+          numPlayers: ctx.numPlayers,
+          random,
+          setupData: {
+            shuffleAlgorithm: G.shuffleReport.algorithm,
+            shuffleScale: G.shuffleReport.scale,
+            takeRequiresPermission: G.takeRequiresPermission,
+          },
+          dealHistory: G.dealHistory ?? [],
+          peekers: G.peekers,
+          autoStart: true,
+        })
+
+        Object.assign(G, next)
+        delete G.lastPickup
+        delete G.lastTrick
+        delete G.pendingTake
+        delete G.lastTakeReject
+        delete G.bhabhi
+        delete G.winner
+      },
     },
 
     /**
@@ -241,10 +298,6 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
     },
   },
 
-  endIf: ({ G }) =>
-    G.phase === 'finished'
-      ? { bhabhi: G.bhabhi, gotAway: G.gotAway }
-      : undefined,
-
+  // No endIf — finished stays as G.phase so the host can call playAgain.
   playerView: ({ G, playerID }) => filterPlayerView(G, playerID),
 }

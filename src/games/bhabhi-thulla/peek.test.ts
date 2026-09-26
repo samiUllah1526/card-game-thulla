@@ -53,6 +53,7 @@ function baseState(): BhabhiState {
     takeRequiresPermission: false,
     takeCount: 0,
     peekers: {},
+    dealHistory: [],
   }
 }
 

@@ -73,13 +73,21 @@ export function syncCounts(state: BhabhiState): void {
 }
 
 export function finishIfNeeded(state: BhabhiState): boolean {
-  if (state.started && state.active.length === 1) {
-    state.phase = 'finished'
-    state.bhabhi = state.active[0]
-    addEvent(state, { type: 'bhabhi', player: state.bhabhi })
-    return true
-  }
-  return false
+  if (!state.started || state.active.length !== 1) return false
+  // Already finished this deal — do not append history twice.
+  if (state.phase === 'finished' && state.bhabhi === state.active[0]) return true
+
+  state.phase = 'finished'
+  state.bhabhi = state.active[0]
+  if (!state.dealHistory) state.dealHistory = []
+  state.dealHistory.push({
+    deal: state.dealHistory.length + 1,
+    bhabhi: state.bhabhi,
+    gotAway: [...state.gotAway],
+    at: Date.now(),
+  })
+  addEvent(state, { type: 'bhabhi', player: state.bhabhi })
+  return true
 }
 
 /** True while a Thulla pickup is waiting for the receiver to dismiss it. */
@@ -123,7 +131,7 @@ export function executeTake(
   }
   syncCounts(state)
   const finished = finishIfNeeded(state)
-  state.turnPlayer = finished ? state.active[0] : taker
+  state.turnPlayer = finished ? state.hostID : taker
   return finished
 }
 
