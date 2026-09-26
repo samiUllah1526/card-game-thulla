@@ -18,6 +18,7 @@
   import { getSeats } from '../multiplayer/lobby'
   import { legalCards } from '../games/bhabhi-thulla/rules'
   import { formatShuffleReport } from '../games/bhabhi-thulla/shuffle'
+  import TableChat from './TableChat.svelte'
 
   export let session: Session
   export let connection: GameConnection
@@ -369,6 +370,7 @@
   {@const lastEvent = G.events[G.events.length - 1]}
   {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup && !pendingTake && !pendingReject}
 
+  <div class="table-shell" class:waiting={!G.started} class:playing={G.started}>
   <main class="table-page" class:shaking class:finished={G.phase === 'finished'}>
     <header class="table-header">
       <button class="icon-button" on:click={onLeave} aria-label="Leave table">←</button>
@@ -697,4 +699,15 @@
       </div>
     {/if}
   </main>
+
+  {#key G.started}
+    <TableChat
+      messages={connection.chat}
+      sendChat={connection.sendChat}
+      me={session.playerID}
+      {nameFor}
+      mode={G.started ? 'game' : 'lobby'}
+    />
+  {/key}
+  </div>
 {/if}

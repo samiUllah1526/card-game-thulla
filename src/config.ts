@@ -117,6 +117,15 @@ export const config = {
   storage: {
     sessionKey: 'bhabhi-session',
   },
+
+  chat: {
+    /** Max characters per message after trim. */
+    maxLength: 200,
+    /** How many messages to keep in memory / sessionStorage. */
+    historyCap: 80,
+    /** sessionStorage key prefix; matchID is appended. */
+    storageKey: 'bhabhi-chat',
+  },
 } as const
 
 export type AppConfig = typeof config
