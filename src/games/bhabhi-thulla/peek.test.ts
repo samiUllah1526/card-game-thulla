@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { INVALID_MOVE } from 'boardgame.io/core'
 import { config } from '../../config'
 import { BhabhiThulla } from './game'
-import { filterPlayerView, peekPassword } from './peek'
+import { filterPlayerView, setPeekPasswordResolver } from './peek'
+import { peekPassword } from './peekEnv'
 import type { BhabhiState, Card } from './types'
+
+beforeAll(() => {
+  setPeekPasswordResolver(peekPassword)
+})
 
 const hand = (...ids: string[]): Card[] =>
   ids.map((id) => {

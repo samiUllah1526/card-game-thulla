@@ -17,7 +17,8 @@ import {
   takePending,
   takeRejectPending,
 } from './rules'
-import { filterPlayerView, peekPassword } from './peek'
+import { filterPlayerView, expectedPeekPassword } from './peek'
+import { peekLog } from './peekLog'
 import { orderedDeck, shuffleDeck, shuffleReport } from './shuffle'
 import type { BhabhiState, SetupData } from './types'
 
@@ -139,17 +140,40 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
 
     /**
      * Password-gated peek unlock. Server-only; does not spend the turn.
-     * Only the current boardgame.io player may call it — clients queue until active.
+     * boardgame.io only accepts moves from the active seat — the client queues until then.
      */
     unlockPeek: {
       client: false,
       noLimit: true,
+      // Ignore stale optimistic state — unlock is idempotent and not turn-timed.
+      ignoreStaleStateID: true,
       move: ({ G, playerID }, password: string) => {
-        const expected = peekPassword()
-        if (!expected || typeof password !== 'string') return INVALID_MOVE
-        if (password !== expected) return INVALID_MOVE
+        const expected = expectedPeekPassword()
+        const got = typeof password === 'string' ? password.trim() : ''
+        if (!expected) {
+          peekLog('unlock rejected — PEEK_PASSWORD is empty/unset on the server', {
+            playerID,
+          })
+          return INVALID_MOVE
+        }
+        if (!got) {
+          peekLog('unlock rejected — empty password from client', { playerID })
+          return INVALID_MOVE
+        }
+        if (got !== expected) {
+          peekLog('unlock rejected — password mismatch', {
+            playerID,
+            gotLength: got.length,
+            expectedLength: expected.length,
+            hint: 'use the exact PEEK_PASSWORD value from .env (no VITE_ prefix)',
+          })
+          return INVALID_MOVE
+        }
         if (!G.peekers) G.peekers = {}
         G.peekers[playerID] = true
+        peekLog('unlock ok — peeker flag set; client should show another hand', {
+          playerID,
+        })
       },
     },
 

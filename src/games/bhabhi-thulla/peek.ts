@@ -1,12 +1,6 @@
-import { config } from '../../config'
 import type { BhabhiState } from './types'
 
-/** Server-only: password from env. Empty string means peek is disabled. */
-export function peekPassword(): string {
-  return (process.env[config.peek.envKey] ?? '').trim()
-}
-
-/** Apply playerView filtering; peekers receive every hand. */
+/** Apply playerView filtering; peekers receive every hand. Safe for client + server. */
 export function filterPlayerView(G: BhabhiState, playerID: string | null | undefined): BhabhiState {
   const visible = structuredClone(G)
   const peek = !!playerID && !!G.peekers?.[playerID]
@@ -16,4 +10,18 @@ export function filterPlayerView(G: BhabhiState, playerID: string | null | undef
   visible.peekers = peek && playerID ? { [playerID]: true } : undefined
   visible.waste = []
   return visible
+}
+
+/**
+ * Injected by the Node server (and tests). Stays empty in the browser bundle
+ * so `node:fs` never ships to the client.
+ */
+let resolvePeekPassword: () => string = () => ''
+
+export function setPeekPasswordResolver(fn: () => string): void {
+  resolvePeekPassword = fn
+}
+
+export function expectedPeekPassword(): string {
+  return resolvePeekPassword()
 }

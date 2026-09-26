@@ -18,6 +18,7 @@
   import { getSeats } from '../multiplayer/lobby'
   import { legalCards } from '../games/bhabhi-thulla/rules'
   import { formatShuffleReport } from '../games/bhabhi-thulla/shuffle'
+  import { peekLog } from '../games/bhabhi-thulla/peekLog'
   import TableChat from './TableChat.svelte'
   import PeekGate from './PeekGate.svelte'
 
@@ -38,6 +39,7 @@
   let peekGate: { tap: () => void } | undefined
   let pendingPeekPassword: string | null = null
   let viewAs = session.playerID
+  let peekWasUnlocked = false
 
   // ---- Thulla pickup ------------------------------------------------------
   // The overlay is driven by server state (lastPickup.dismissed). When the
@@ -86,9 +88,31 @@
       ) {
         const password = pendingPeekPassword
         pendingPeekPassword = null
+        peekLog('your turn now — sending queued table code', {
+          playerID: session.playerID,
+          turnPlayer: G.turnPlayer,
+        })
         connection.moves.unlockPeek(password)
       }
-      if (!G.peekers?.[session.playerID] && viewAs !== session.playerID) {
+      const unlocked = !!G.peekers?.[session.playerID]
+      if (unlocked && !peekWasUnlocked) {
+        // Just unlocked — show another seat's hand so the change is visible.
+        const other = G.active.find((id) => id !== session.playerID)
+        if (other) {
+          viewAs = other
+          selectedCard = ''
+          peekLog('unlocked — bottom tray now shows another player', {
+            viewing: other,
+            name: nameFor(other),
+            cardCount: G.hands[other]?.length ?? G.handCounts?.[other],
+            hint: 'tap an opponent chip or waste to switch seats',
+          })
+        } else {
+          peekLog('unlocked — no other seats yet; wait for players then tap an opponent')
+        }
+      }
+      peekWasUnlocked = unlocked
+      if (!unlocked && viewAs !== session.playerID) {
         viewAs = session.playerID
       }
 
@@ -188,6 +212,15 @@
   onMount(() => {
     refreshSeats()
     poll = window.setInterval(refreshSeats, timing.seatPollMs)
+    peekLog('how to peek (open DevTools console for these messages)', {
+      steps: [
+        '1. Triple-tap waste (header) or ♠ (lobby) within 2s',
+        '2. Enter PEEK_PASSWORD from .env (e.g. Sam1234!)',
+        '3. Must be your turn (or host before start) — otherwise it queues',
+        '4. After unlock, tray shows another hand; tap opponents / waste to switch',
+      ],
+      you: session.playerID,
+    })
   })
 
   function wait(ms: number): Promise<void> {
@@ -336,20 +369,38 @@
     if (canPeekNow(state?.G)) {
       viewAs = playerID
       selectedCard = ''
+      peekLog('viewing seat', {
+        playerID,
+        name: nameFor(playerID),
+        cards: state?.G.hands[playerID]?.length ?? state?.G.handCounts?.[playerID],
+      })
     }
   }
 
   function requestPeekUnlock(password: string) {
     if (state?.isActive) {
+      peekLog('sending unlock now (you are the active seat)', {
+        playerID: session.playerID,
+        turnPlayer: state.G?.turnPlayer,
+      })
       connection.moves.unlockPeek(password)
       return
     }
     pendingPeekPassword = password
+    peekLog('not your turn yet — table code queued until you are active', {
+      playerID: session.playerID,
+      turnPlayer: state?.G?.turnPlayer,
+      isActive: state?.isActive,
+      hint: 'wait for your turn (or host start); unlock sends automatically — watch this console and the server terminal',
+    })
   }
 
   function cyclePeekView() {
     const G = state?.G
-    if (!canPeekNow(G) || !G) return
+    if (!canPeekNow(G) || !G) {
+      peekLog('cycle ignored — peek not unlocked yet')
+      return
+    }
     const order = [
       session.playerID,
       ...G.active.filter((id) => id !== session.playerID),
@@ -357,6 +408,11 @@
     const index = order.indexOf(viewAs)
     viewAs = order[(index + 1) % order.length] ?? session.playerID
     selectedCard = ''
+    peekLog('cycled viewed seat', {
+      viewing: viewAs,
+      name: nameFor(viewAs),
+      cards: G.hands[viewAs]?.length ?? G.handCounts?.[viewAs],
+    })
   }
 
   function statusText(
