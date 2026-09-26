@@ -2,6 +2,7 @@
   import { afterUpdate, onMount } from 'svelte'
   import type { Readable } from 'svelte/store'
   import type { TableChatMessage } from '../multiplayer/chat'
+  import { formatLocalTime, toUtcIso } from '../lib/time'
   import { config } from '../config'
 
   export let messages: Readable<TableChatMessage[]>
@@ -55,14 +56,6 @@
     }
   }
 
-  function formatTime(at: number): string {
-    try {
-      return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    } catch {
-      return ''
-    }
-  }
-
   function toggle() {
     open = !open
     if (open) {
@@ -97,7 +90,7 @@
             <div class="chat-line" class:mine={message.sender === me}>
               <div class="chat-meta">
                 <span class="chat-name">{message.sender === me ? 'You' : nameFor(message.sender)}</span>
-                <time datetime={new Date(message.at).toISOString()}>{formatTime(message.at)}</time>
+                <time datetime={toUtcIso(message.at)}>{formatLocalTime(message.at)}</time>
               </div>
               <p class="chat-text">{message.text}</p>
             </div>

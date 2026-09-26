@@ -15,6 +15,7 @@
   )
   const algorithms = config.shuffle.algorithms
 
+  let tab: 'create' | 'join' | 'account' = 'create'
   let playerName = ''
   let playerCount = Math.min(4, config.game.maxPlayers)
   let shuffleAlgorithm: string = config.shuffle.defaultAlgorithm
@@ -24,7 +25,8 @@
   let seats: LobbySeat[] = []
   let selectedSeat = ''
   let loading = false
-  let error = ''
+  let createError = ''
+  let joinError = ''
   let authMode: 'signin' | 'signup' = 'signin'
   let authEmail = ''
   let authPassword = ''
@@ -37,11 +39,11 @@
 
   async function create() {
     if (!playerName.trim()) {
-      error = 'Enter your name first.'
+      createError = 'Enter your name first.'
       return
     }
     loading = true
-    error = ''
+    createError = ''
     try {
       const session = await createMatch(playerName.trim(), playerCount, {
         shuffleAlgorithm,
@@ -51,7 +53,7 @@
       saveSession(session)
       onJoined(session)
     } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'Could not create the game.'
+      createError = reason instanceof Error ? reason.message : 'Could not create the game.'
     } finally {
       loading = false
     }
@@ -60,14 +62,14 @@
   async function findGame() {
     if (!matchID.trim()) return
     loading = true
-    error = ''
+    joinError = ''
     try {
       seats = await getSeats(matchID.trim())
       selectedSeat = String(seats.find((seat) => !seat.name)?.id ?? '')
-      if (!selectedSeat) error = 'This game is full.'
+      if (!selectedSeat) joinError = 'This game is full.'
     } catch (reason) {
       seats = []
-      error = reason instanceof Error ? reason.message : 'Game not found.'
+      joinError = reason instanceof Error ? reason.message : 'Game not found.'
     } finally {
       loading = false
     }
@@ -75,17 +77,17 @@
 
   async function join() {
     if (!playerName.trim() || !selectedSeat) {
-      error = 'Enter your name and choose an empty seat.'
+      joinError = 'Enter your name and choose an empty seat.'
       return
     }
     loading = true
-    error = ''
+    joinError = ''
     try {
       const session = await joinMatch(matchID.trim(), selectedSeat, playerName.trim())
       saveSession(session)
       onJoined(session)
     } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'Could not join the game.'
+      joinError = reason instanceof Error ? reason.message : 'Could not join the game.'
     } finally {
       loading = false
     }
@@ -101,6 +103,7 @@
           : await login(authEmail, authPassword)
       onUser(next)
       authPassword = ''
+      tab = 'create'
     } catch (reason) {
       authError = reason instanceof Error ? reason.message : 'Could not sign in.'
     } finally {
@@ -140,147 +143,166 @@
     <span class="mini-card black">A♠</span>
   </section>
 
-  <section class="panel auth-panel">
-    {#if user}
-      <div class="auth-signed-in">
-        <p>Signed in as <strong>{user.displayName}</strong></p>
-        <button class="secondary" type="button" on:click={signOut} disabled={authLoading}>Sign out</button>
+  <div class="lobby-tabs" role="tablist">
+    <button type="button" role="tab" aria-selected={tab === 'create'} class:active={tab === 'create'} on:click={() => (tab = 'create')}>Create</button>
+    <button type="button" role="tab" aria-selected={tab === 'join'} class:active={tab === 'join'} on:click={() => (tab = 'join')}>Join</button>
+    <button type="button" role="tab" aria-selected={tab === 'account'} class:active={tab === 'account'} on:click={() => (tab = 'account')}>Account</button>
+  </div>
+
+  {#if user}
+    <p class="signed-in-line">Signed in as <strong>{user.displayName}</strong></p>
+  {/if}
+
+  {#if tab === 'create'}
+    <section class="panel" role="tabpanel">
+      <div class="section-title">
+        <span class="step">1</span>
+        <div><h2>Create a table</h2><p>Invite friends with a game code.</p></div>
       </div>
-    {:else}
-      <div class="auth-tabs" role="tablist">
-        <button
-          type="button"
-          class:active={authMode === 'signin'}
-          on:click={() => (authMode = 'signin')}
-        >Sign in</button>
-        <button
-          type="button"
-          class:active={authMode === 'signup'}
-          on:click={() => (authMode = 'signup')}
-        >Sign up</button>
-      </div>
-      <form class="auth-form" on:submit|preventDefault={submitAuth}>
-        <label>
-          <span>Email</span>
-          <input type="email" bind:value={authEmail} autocomplete="email" required />
-        </label>
-        {#if authMode === 'signup'}
-          <label>
-            <span>Display name</span>
-            <input bind:value={authName} maxlength={config.auth.maxDisplayName} autocomplete="nickname" required />
-          </label>
-        {/if}
-        <label>
-          <span>Password</span>
-          <input
-            type="password"
-            bind:value={authPassword}
-            minlength={config.auth.minPasswordLength}
-            autocomplete={authMode === 'signup' ? 'new-password' : 'current-password'}
-            required
-          />
-        </label>
-        <button class="primary" type="submit" disabled={authLoading}>
-          {authMode === 'signup' ? 'Create account' : 'Sign in'}
-        </button>
-      </form>
-      <p class="auth-hint">Optional — guests can still play with a display name.</p>
-    {/if}
-    {#if authError}<p class="error" role="alert">{authError}</p>{/if}
-  </section>
-
-  <label>
-    <span>Your name</span>
-    <input
-      bind:value={playerName}
-      maxlength="24"
-      placeholder="Enter a display name"
-      disabled={!!user}
-    />
-  </label>
-
-  <section class="panel">
-    <div class="section-title">
-      <span class="step">1</span>
-      <div><h2>Create a table</h2><p>Invite friends with a game code.</p></div>
-    </div>
-    <label>
-      <span>Number of seats</span>
-      <select bind:value={playerCount}>
-        {#each seatOptions as count}
-          <option value={count}>{count} players</option>
-        {/each}
-      </select>
-    </label>
-    <label>
-      <span>Shuffle method</span>
-      <select bind:value={shuffleAlgorithm}>
-        {#each algorithms as algo}
-          <option value={algo.id}>{algo.label}</option>
-        {/each}
-      </select>
-    </label>
-    <label class="scale-label">
-      <span class="scale-head">
-        <span>Shuffle intensity</span>
-        <strong>{shuffleScale}/{config.shuffle.maxScale}</strong>
-      </span>
-      <input
-        type="range"
-        min={config.shuffle.minScale}
-        max={config.shuffle.maxScale}
-        step="1"
-        bind:value={shuffleScale}
-      />
-      <span class="scale-ends"><span>Stacked</span><span>Random</span></span>
-      <p class="scale-hint">{selectedAlgo.hint}</p>
-    </label>
-    <fieldset class="take-mode">
-      <legend>Taking cards</legend>
-      <label class="radio-option">
-        <input type="radio" bind:group={takeMode} value="free" />
-        <span>
-          <strong>Free take</strong>
-          <small>Leader can take the next player's hand immediately</small>
-        </span>
-      </label>
-      <label class="radio-option">
-        <input type="radio" bind:group={takeMode} value="ask" />
-        <span>
-          <strong>Ask permission</strong>
-          <small>Next player must Accept or Reject before cards move</small>
-        </span>
-      </label>
-    </fieldset>
-    <button class="primary" on:click={create} disabled={loading}>Create game</button>
-  </section>
-
-  <div class="divider"><span>or join friends</span></div>
-
-  <section class="panel">
-    <div class="section-title">
-      <span class="step">2</span>
-      <div><h2>Join a table</h2><p>Ask the host for their code.</p></div>
-    </div>
-    <div class="join-row">
-      <input bind:value={matchID} placeholder="Game code" autocapitalize="off" />
-      <button class="secondary" on:click={findGame} disabled={loading || !matchID.trim()}>
-        Find
-      </button>
-    </div>
-    {#if seats.length}
       <label>
-        <span>Choose an empty seat</span>
-        <select bind:value={selectedSeat}>
-          {#each seats.filter((seat) => !seat.name) as seat}
-            <option value={String(seat.id)}>Seat {seat.id + 1}</option>
+        <span>Your name</span>
+        <input
+          bind:value={playerName}
+          maxlength="24"
+          placeholder="Enter a display name"
+          disabled={!!user}
+        />
+      </label>
+      <label>
+        <span>Number of seats</span>
+        <select bind:value={playerCount}>
+          {#each seatOptions as count}
+            <option value={count}>{count} players</option>
           {/each}
         </select>
       </label>
-      <button class="primary" on:click={join} disabled={loading || !selectedSeat}>Join game</button>
-    {/if}
-  </section>
+      <label>
+        <span>Shuffle method</span>
+        <select bind:value={shuffleAlgorithm}>
+          {#each algorithms as algo}
+            <option value={algo.id}>{algo.label}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="scale-label">
+        <span class="scale-head">
+          <span>Shuffle intensity</span>
+          <strong>{shuffleScale}/{config.shuffle.maxScale}</strong>
+        </span>
+        <input
+          type="range"
+          min={config.shuffle.minScale}
+          max={config.shuffle.maxScale}
+          step="1"
+          bind:value={shuffleScale}
+        />
+        <span class="scale-ends"><span>Stacked</span><span>Random</span></span>
+        <p class="scale-hint">{selectedAlgo.hint}</p>
+      </label>
+      <fieldset class="take-mode">
+        <legend>Taking cards</legend>
+        <label class="radio-option">
+          <input type="radio" bind:group={takeMode} value="free" />
+          <span>
+            <strong>Free take</strong>
+            <small>Leader can take the next player's hand immediately</small>
+          </span>
+        </label>
+        <label class="radio-option">
+          <input type="radio" bind:group={takeMode} value="ask" />
+          <span>
+            <strong>Ask permission</strong>
+            <small>Next player must Accept or Reject before cards move</small>
+          </span>
+        </label>
+      </fieldset>
+      <button class="primary" on:click={create} disabled={loading}>Create game</button>
+      {#if createError}<p class="error" role="alert">{createError}</p>{/if}
+    </section>
+  {:else if tab === 'join'}
+    <section class="panel" role="tabpanel">
+      <div class="section-title">
+        <span class="step">2</span>
+        <div><h2>Join a table</h2><p>Ask the host for their code.</p></div>
+      </div>
+      <label>
+        <span>Your name</span>
+        <input
+          bind:value={playerName}
+          maxlength="24"
+          placeholder="Enter a display name"
+          disabled={!!user}
+        />
+      </label>
+      <div class="join-row">
+        <input bind:value={matchID} placeholder="Game code" autocapitalize="off" />
+        <button class="secondary" on:click={findGame} disabled={loading || !matchID.trim()}>
+          Find
+        </button>
+      </div>
+      {#if seats.length}
+        <label>
+          <span>Choose an empty seat</span>
+          <select bind:value={selectedSeat}>
+            {#each seats.filter((seat) => !seat.name) as seat}
+              <option value={String(seat.id)}>Seat {seat.id + 1}</option>
+            {/each}
+          </select>
+        </label>
+        <button class="primary" on:click={join} disabled={loading || !selectedSeat}>Join game</button>
+      {/if}
+      {#if joinError}<p class="error" role="alert">{joinError}</p>{/if}
+    </section>
+  {:else}
+    <section class="panel auth-panel" role="tabpanel">
+      {#if user}
+        <div class="auth-signed-in">
+          <p>Signed in as <strong>{user.displayName}</strong></p>
+          <button class="secondary" type="button" on:click={signOut} disabled={authLoading}>Sign out</button>
+        </div>
+      {:else}
+        <div class="auth-tabs" role="tablist">
+          <button
+            type="button"
+            class:active={authMode === 'signin'}
+            on:click={() => (authMode = 'signin')}
+          >Sign in</button>
+          <button
+            type="button"
+            class:active={authMode === 'signup'}
+            on:click={() => (authMode = 'signup')}
+          >Sign up</button>
+        </div>
+        <form class="auth-form" on:submit|preventDefault={submitAuth}>
+          <label>
+            <span>Email</span>
+            <input type="email" bind:value={authEmail} autocomplete="email" required />
+          </label>
+          {#if authMode === 'signup'}
+            <label>
+              <span>Display name</span>
+              <input bind:value={authName} maxlength={config.auth.maxDisplayName} autocomplete="nickname" required />
+            </label>
+          {/if}
+          <label>
+            <span>Password</span>
+            <input
+              type="password"
+              bind:value={authPassword}
+              minlength={config.auth.minPasswordLength}
+              autocomplete={authMode === 'signup' ? 'new-password' : 'current-password'}
+              required
+            />
+          </label>
+          <button class="primary" type="submit" disabled={authLoading}>
+            {authMode === 'signup' ? 'Create account' : 'Sign in'}
+          </button>
+        </form>
+        <p class="auth-hint">Optional — guests can still play with a display name.</p>
+      {/if}
+      {#if authError}<p class="error" role="alert">{authError}</p>{/if}
+    </section>
+  {/if}
 
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
   <p class="footnote">{config.game.minPlayers}–{config.game.maxPlayers} human players · Each player uses their own phone</p>
 </main>

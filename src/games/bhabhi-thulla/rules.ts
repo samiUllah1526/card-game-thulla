@@ -1,4 +1,5 @@
 import { config } from '../../config'
+import { utcNowMs } from '../../lib/time'
 import type { BhabhiState, Card, GameEvent, GameEventInput, Rank, Suit, TrickPlay } from './types'
 
 export const SUITS: Suit[] = ['S', 'H', 'D', 'C']
@@ -84,7 +85,7 @@ export function finishIfNeeded(state: BhabhiState): boolean {
     deal: state.dealHistory.length + 1,
     bhabhi: state.bhabhi,
     gotAway: [...state.gotAway],
-    at: Date.now(),
+    at: utcNowMs(),
   })
   addEvent(state, { type: 'bhabhi', player: state.bhabhi })
   return true

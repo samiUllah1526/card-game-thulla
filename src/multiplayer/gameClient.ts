@@ -1,6 +1,7 @@
 import { Client } from 'boardgame.io/client'
 import { SocketIO } from 'boardgame.io/multiplayer'
 import { get, writable, type Readable } from 'svelte/store'
+import { utcNowMs } from '../lib/time'
 import { config } from '../config'
 import { BhabhiThulla } from '../games/bhabhi-thulla/game'
 import type { BhabhiState, Session } from '../games/bhabhi-thulla/types'
@@ -76,7 +77,7 @@ export function connectGame(session: Session): GameConnection {
     sendChat: (text) => {
       const cleaned = sanitizeChatText(text, config.chat.maxLength)
       if (!cleaned) return false
-      const message = { id: crypto.randomUUID(), text: cleaned, at: Date.now() }
+      const message = { id: crypto.randomUUID(), text: cleaned, at: utcNowMs() }
       client.sendChatMessage(message)
       void persistMatchChat(session, message).catch(() => {
         // Socket already delivered the line; DB write can retry on the next send.

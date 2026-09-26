@@ -375,6 +375,18 @@ input:not([type='radio']):not([type='checkbox']):not([type='range']), select {
   color: var(--ink); background: white; appearance: none;
 }
 input::placeholder { color: #96a098; }
+.panel {
+  display: grid; gap: 15px; margin-top: 18px; padding: 18px; border: 1px solid var(--line);
+  border-radius: 20px; background: rgba(255, 253, 246, .9); box-shadow: 0 10px 30px rgba(30, 55, 42, .06);
+}
+.lobby-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
+.lobby-tabs button {
+  min-height: 44px; border: 1px solid var(--line); border-radius: 12px;
+  background: white; color: var(--muted); font-weight: 800;
+}
+.lobby-tabs button.active { color: var(--green); border-color: var(--green); background: #edf3dc; }
+.signed-in-line { margin: 12px 2px 0; color: var(--ink); font-size: 13px; font-weight: 650; }
+.signed-in-line strong { font-weight: 850; }
 .auth-panel { margin-top: 16px; gap: 12px; }
 .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .auth-tabs button {
@@ -840,6 +852,9 @@ button.pulse {
 .deal-history li {
   color: var(--ink); font-size: 12px; font-weight: 700; text-transform: none; letter-spacing: 0;
   background: rgba(255, 255, 255, .55); border-radius: 8px; padding: 6px 10px;
+}
+.deal-history li time {
+  display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 650;
 }
 .deal-tally {
   margin: 0 !important; max-width: 280px;

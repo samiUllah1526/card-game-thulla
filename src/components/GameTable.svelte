@@ -19,6 +19,7 @@
   import { getSeats } from '../multiplayer/lobby'
   import { fetchMatchLeaderboard } from '../multiplayer/authClient'
   import { tallyLeaderboard, type MatchLeaderboard } from '../multiplayer/leaderboard'
+  import { formatLocalDateTime, toUtcIso } from '../lib/time'
   import { legalCards } from '../games/bhabhi-thulla/rules'
   import { formatShuffleReport } from '../games/bhabhi-thulla/shuffle'
   import { peekLog } from '../games/bhabhi-thulla/peekLog'
@@ -742,7 +743,12 @@
               {/if}
               <ul class="deal-history">
                 {#each (board.deals.length ? board.deals : G.dealHistory) as result (result.deal)}
-                  <li>Deal {result.deal} — {nameFor(result.bhabhi)} is Bhabhi</li>
+                  <li>
+                    Deal {result.deal} — {nameFor(result.bhabhi)} is Bhabhi
+                    {#if result.at}
+                      <time datetime={toUtcIso(result.at)}>{formatLocalDateTime(result.at)}</time>
+                    {/if}
+                  </li>
                 {/each}
               </ul>
             {/if}

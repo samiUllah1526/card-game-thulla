@@ -1,3 +1,4 @@
+import { utcNowMs } from '../lib/time'
 import { config } from '../config'
 
 /** Normalized chat line shown in the UI. */
@@ -31,7 +32,7 @@ export function normalizeChatMessage(entry: {
   payload: unknown
 }): TableChatMessage | null {
   let text: string | null = null
-  let at = Date.now()
+  let at = utcNowMs()
   let id = entry.id
 
   if (typeof entry.payload === 'string') {

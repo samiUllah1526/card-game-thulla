@@ -2,6 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Server } from 'boardgame.io'
 import { config } from '../config'
+import { utcNowMs } from '../lib/time'
 import type { DealResult, LobbySeat } from '../games/bhabhi-thulla/types'
 import type { TableChatMessage } from './chat'
 import { tallyLeaderboard, type MatchLeaderboard } from './leaderboard'
@@ -23,7 +24,7 @@ export class AppStore {
     const cleanEmail = normalizeEmail(email)
     const name = normalizeDisplayName(displayName)
     const hash = hashPassword(password)
-    const now = Date.now()
+    const now = utcNowMs()
     try {
       const result = this.db
         .prepare(
@@ -71,7 +72,7 @@ export class AppStore {
       | { id: number; email: string; display_name: string; expires_at: number }
       | undefined
     if (!row) return null
-    if (row.expires_at < Date.now()) {
+    if (row.expires_at < utcNowMs()) {
       this.deleteSession(token)
       return null
     }
@@ -100,7 +101,7 @@ export class AppStore {
     at?: number
   }): TableChatMessage {
     const id = input.id?.trim() || randomBytes(8).toString('base64url')
-    const at = input.at && Number.isFinite(input.at) ? input.at : Date.now()
+    const at = input.at && Number.isFinite(input.at) ? input.at : utcNowMs()
     this.db
       .prepare(
         `INSERT INTO chat_messages (id, match_id, sender_seat, user_id, text, at)
@@ -146,7 +147,7 @@ export class AppStore {
           deal: deal.deal,
           bhabhi_seat: deal.bhabhi,
           got_away: JSON.stringify(deal.gotAway ?? []),
-          at: typeof deal.at === 'number' ? deal.at : Date.now(),
+          at: typeof deal.at === 'number' ? deal.at : utcNowMs(),
         })
       }
     })
@@ -176,7 +177,7 @@ export class AppStore {
 
   private createSession(userID: number): string {
     const token = randomBytes(24).toString('base64url')
-    const expiresAt = Date.now() + config.auth.sessionDays * 24 * 60 * 60 * 1000
+    const expiresAt = utcNowMs() + config.auth.sessionDays * 24 * 60 * 60 * 1000
     this.db
       .prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`)
       .run(token, userID, expiresAt)
