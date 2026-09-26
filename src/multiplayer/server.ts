@@ -1,6 +1,5 @@
 import { Server } from 'boardgame.io/server'
 import { randomBytes } from 'node:crypto'
-import bodyParser from 'koa-bodyparser'
 import { config } from '../config'
 import { BhabhiThulla } from '../games/bhabhi-thulla/game'
 import { setPeekPasswordResolver } from '../games/bhabhi-thulla/peek'
@@ -27,7 +26,6 @@ const server = Server({
 })
 
 const appStore = db instanceof SqliteStorage ? db.getAppStore() : null
-server.app.use(bodyParser())
 server.app.use(createAppRouter(appStore).routes())
 
 server.run(port, () => {

@@ -64,6 +64,38 @@ export async function getSeats(matchID: string): Promise<LobbySeat[]> {
   return match.players.map(({ id, name }) => ({ id, name }))
 }
 
+/** Public share URL for this table (SPA GET /join/:code). */
+export function joinUrl(matchID: string, origin = window.location.origin): string {
+  return `${origin}/join/${encodeURIComponent(matchID)}`
+}
+
+/** Read match code from `/join/:code`. */
+export function parseJoinPath(pathname = window.location.pathname): string | null {
+  const parts = pathname.split('/').filter(Boolean)
+  if (parts.length !== 2 || parts[0] !== 'join' || !parts[1]) return null
+  try {
+    return decodeURIComponent(parts[1])
+  } catch {
+    return parts[1]
+  }
+}
+
+/** Next unused guest1, guest2, … from names already seated (case-insensitive). */
+export function nextGuestName(seats: LobbySeat[]): string {
+  const taken = new Set(
+    seats
+      .map((seat) => seat.name?.trim().toLowerCase())
+      .filter((name): name is string => !!name),
+  )
+  let n = 1
+  while (taken.has(`guest${n}`)) n += 1
+  return `guest${n}`
+}
+
+export function firstEmptySeat(seats: LobbySeat[]): LobbySeat | undefined {
+  return seats.find((seat) => !seat.name)
+}
+
 export function saveSession(session: Session): void {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
 }
