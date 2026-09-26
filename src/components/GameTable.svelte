@@ -749,11 +749,13 @@
               </button>
             {/each}
           </div>
-          {#if selectedCard && canAct}
-            <button class="primary play-button" on:click={playSelected} in:fly={{ y: 10, duration: 200 }}>
-              Play selected card
-            </button>
-          {/if}
+          <div class="play-button-slot">
+            {#if selectedCard && canAct}
+              <button class="primary play-button" on:click={playSelected} in:fly={{ y: 10, duration: 200 }}>
+                Play selected card
+              </button>
+            {/if}
+          </div>
         {/if}
       </section>
     {/if}

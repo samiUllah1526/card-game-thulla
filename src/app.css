@@ -474,12 +474,15 @@ input::placeholder { color: #96a098; }
   display: flex; flex-direction: column; width: min(100%, 700px); min-height: 100svh;
   margin: 0 auto; position: relative;
 }
+.table-shell.playing {
+  height: 100svh; max-height: 100svh; min-height: 0; overflow: hidden;
+}
 .table-page {
   position: relative; display: flex; flex-direction: column; width: 100%; flex: 1; min-height: 0;
   padding-top: env(safe-area-inset-top); overflow: hidden;
   background: linear-gradient(165deg, #f8f5e9 0%, #eef1dc 100%);
 }
-.table-shell.playing .table-page { min-height: 100svh; }
+.table-shell.playing .table-page { height: 100%; max-height: 100%; min-height: 0; }
 .table-shell.waiting .table-page { flex: 1 1 auto; }
 
 /* ---- Table chat -------------------------------------------------------- */
@@ -675,7 +678,7 @@ button.pulse {
 }
 
 .play-area {
-  flex: 1; min-height: 230px; display: flex; flex-direction: column; align-items: center;
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center;
   padding: 6px 12px; background:
     radial-gradient(ellipse at center, rgba(23,107,69,.1), transparent 65%);
 }
@@ -742,7 +745,8 @@ button.pulse {
 .pickup-wait { margin: 4px 0 0; color: var(--muted); font-size: 11px; font-style: italic; }
 
 .hand-area {
-  z-index: 2; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(31,66,45,.1);
+  z-index: 2; flex: 0 0 auto; padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(31,66,45,.1);
   border-radius: 22px 22px 0 0; background: rgba(255,253,247,.96); box-shadow: 0 -10px 30px rgba(28,60,39,.08);
 }
 .hand-area { transition: background .3s, box-shadow .3s; }
@@ -791,7 +795,10 @@ button.pulse {
   background: #c04545;
   box-shadow: 0 6px 0 #8f2e2e;
 }
-.hand { min-height: 88px; display: flex; gap: 6px; overflow-x: auto; overflow-y: visible; padding: 10px 2px 3px; scrollbar-width: none; }
+.hand {
+  min-height: 88px; display: flex; gap: 6px; overflow-x: auto; overflow-y: visible;
+  padding: 12px 2px 3px; scrollbar-width: none;
+}
 .playing-card {
   flex: 0 0 56px; height: 80px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
   padding: 6px; border: 1px solid #dedfd8; border-radius: 9px; color: #15221b; background: white;
@@ -803,7 +810,11 @@ button.pulse {
 .playing-card.illegal { opacity: .3; filter: grayscale(.5); box-shadow: none; }
 .playing-card.received { opacity: 1; filter: none; border-color: var(--gold); animation: glow 1s ease-in-out infinite; }
 .playing-card.received.illegal { opacity: .85; }
-.play-button { margin-top: 10px; }
+/* Reserve space so selecting a card does not push the button off-screen. */
+.play-button-slot {
+  display: flex; align-items: stretch; min-height: 58px; margin-top: 10px;
+}
+.play-button { margin: 0; width: 100%; }
 .game-over { display: grid; justify-items: center; gap: 8px; padding: 10px; text-align: center; }
 .game-over p { color: var(--green); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
 .game-over h2 { margin: 0; color: var(--ink); font-size: 22px; }
@@ -888,11 +899,16 @@ button.pulse {
 @media (min-width: 700px) {
   body { padding: 22px; }
   .table-shell { min-height: calc(100svh - 44px); }
+  .table-shell.playing {
+    height: calc(100svh - 44px); max-height: calc(100svh - 44px);
+  }
   .table-page {
-    min-height: calc(100svh - 44px); border-radius: 28px;
+    border-radius: 28px;
     box-shadow: 0 24px 80px rgba(24,60,38,.16);
   }
-  .table-shell.waiting .table-page { border-radius: 28px 28px 0 0; }
+  .table-shell.waiting .table-page {
+    min-height: calc(100svh - 44px); border-radius: 28px 28px 0 0;
+  }
   .table-shell.waiting .table-chat {
     border-radius: 0 0 28px 28px; box-shadow: 0 24px 80px rgba(24,60,38,.16);
   }
@@ -906,8 +922,11 @@ button.pulse {
     box-shadow: 0 24px 80px rgba(24,60,38,.16);
   }
   .table-page {
-    width: min(100%, 700px); flex: 1 1 auto; min-height: calc(100svh - 44px);
+    width: min(100%, 700px); flex: 1 1 auto; min-height: 0;
     border-radius: 28px 0 0 28px; box-shadow: none;
+  }
+  .table-shell.waiting .table-page {
+    min-height: calc(100svh - 44px);
   }
   .table-shell.waiting .table-page,
   .table-shell.playing .table-page { border-radius: 28px 0 0 28px; }
@@ -917,12 +936,13 @@ button.pulse {
   .table-chat.game.open,
   .table-chat.game:not(.open):not(.wide) {
     position: relative; left: auto; right: auto; bottom: auto; z-index: 1;
-    width: 300px; flex: 0 0 300px; min-height: calc(100svh - 44px); max-height: none; height: auto;
+    width: 300px; flex: 0 0 300px; min-height: 0; max-height: none; height: auto; align-self: stretch;
     border-top: 0; border-left: 1px solid rgba(34, 72, 49, .12); border-radius: 0 28px 28px 0;
     box-shadow: none; background: #f7f8ef;
   }
+  .table-shell.waiting .table-chat { min-height: calc(100svh - 44px); }
   .table-chat .chat-chip { display: none; }
-  .table-chat .chat-panel { min-height: calc(100svh - 44px); }
+  .table-chat .chat-panel { height: 100%; min-height: 0; }
   .table-chat .chat-close { display: none; }
   .chat-compose { padding-bottom: 12px; }
 }
