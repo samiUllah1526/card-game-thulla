@@ -127,6 +127,17 @@ export const config = {
   storage: {
     /** localStorage key for the seated player session. */
     sessionKey: 'thulla-express-session',
+    /**
+     * Match persistence backend. Switch later (e.g. postgres) by adding a
+     * case in `createMatchStore()` — the game server only talks to MatchStore.
+     * Override with STORAGE_ENGINE=sqlite|memory.
+     */
+    engine: 'sqlite' as const,
+    /**
+     * SQLite file (relative to process cwd). Override with SQLITE_PATH.
+     * SQLite is single-process only.
+     */
+    sqlitePath: 'data/thulla-express.sqlite',
   },
 
   chat: {

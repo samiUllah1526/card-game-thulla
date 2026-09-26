@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Game match database
+data/
+*.sqlite
+*.sqlite-*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
