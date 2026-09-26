@@ -24,6 +24,7 @@ export interface GameConnection {
     dismissPickup: () => void
     respondTake: (accept: boolean) => void
     dismissTakeReject: () => void
+    unlockPeek: (password: string) => void
   }
   stop: () => void
 }
@@ -81,6 +82,7 @@ export function connectGame(session: Session): GameConnection {
       dismissPickup: () => client.moves.dismissPickup(),
       respondTake: (accept) => client.moves.respondTake(accept),
       dismissTakeReject: () => client.moves.dismissTakeReject(),
+      unlockPeek: (password) => client.moves.unlockPeek(password),
     },
     stop: () => {
       unsubscribe()

@@ -19,6 +19,7 @@
   import { legalCards } from '../games/bhabhi-thulla/rules'
   import { formatShuffleReport } from '../games/bhabhi-thulla/shuffle'
   import TableChat from './TableChat.svelte'
+  import PeekGate from './PeekGate.svelte'
 
   export let session: Session
   export let connection: GameConnection
@@ -32,6 +33,11 @@
   let copied = false
   let poll: number | undefined
   let timers: number[] = []
+
+  // ---- Hidden peek --------------------------------------------------------
+  let peekGate: { tap: () => void } | undefined
+  let pendingPeekPassword: string | null = null
+  let viewAs = session.playerID
 
   // ---- Thulla pickup ------------------------------------------------------
   // The overlay is driven by server state (lastPickup.dismissed). When the
@@ -72,6 +78,20 @@
   const unsubscribe = connection.state.subscribe((value) => {
     const G = value?.G
     if (G) {
+      // Flush queued peek unlock once this seat is allowed to move.
+      if (
+        pendingPeekPassword &&
+        value?.isActive &&
+        !G.peekers?.[session.playerID]
+      ) {
+        const password = pendingPeekPassword
+        pendingPeekPassword = null
+        connection.moves.unlockPeek(password)
+      }
+      if (!G.peekers?.[session.playerID] && viewAs !== session.playerID) {
+        viewAs = session.playerID
+      }
+
       // Pickup: buzz on a new Thulla; fly-out when the receiver dismisses.
       const pickup = G.lastPickup
       const pending = !!pickup && !pickup.dismissed
@@ -307,6 +327,38 @@
     if (openNameFor) nameTimer = window.setTimeout(() => (openNameFor = null), timing.nameTipMs)
   }
 
+  function canPeekNow(G: BhabhiState | undefined): boolean {
+    return !!G?.peekers?.[session.playerID]
+  }
+
+  function onOpponentTap(playerID: string) {
+    toggleName(playerID)
+    if (canPeekNow(state?.G)) {
+      viewAs = playerID
+      selectedCard = ''
+    }
+  }
+
+  function requestPeekUnlock(password: string) {
+    if (state?.isActive) {
+      connection.moves.unlockPeek(password)
+      return
+    }
+    pendingPeekPassword = password
+  }
+
+  function cyclePeekView() {
+    const G = state?.G
+    if (!canPeekNow(G) || !G) return
+    const order = [
+      session.playerID,
+      ...G.active.filter((id) => id !== session.playerID),
+    ]
+    const index = order.indexOf(viewAs)
+    viewAs = order[(index + 1) % order.length] ?? session.playerID
+    selectedCard = ''
+  }
+
   function statusText(
     G: BhabhiState,
     pendingPickup: PickupEvent | null,
@@ -359,13 +411,17 @@
   {@const activePickup = pendingPickup ?? flyingPickup}
   {@const receivingMine = activePickup?.receiver === session.playerID}
   {@const hiddenIDs = new Set(receivingMine ? activePickup!.cards.map((card) => card.id) : [])}
-  {@const myHand = [...(G.hands[session.playerID] ?? [])]
-    .filter((card) => !hiddenIDs.has(card.id))
+  {@const peekUnlocked = !!G.peekers?.[session.playerID]}
+  {@const viewingSelf = viewAs === session.playerID}
+  {@const myHand = [...(G.hands[viewAs] ?? [])]
+    .filter((card) => !(viewingSelf && hiddenIDs.has(card.id)))
     .sort((a, b) => a.suit.localeCompare(b.suit) || a.rank - b.rank)}
-  {@const legal = new Set(legalCards(myHand, G.ledSuit).map((card) => card.id))}
+  {@const legal = new Set(
+    viewingSelf ? legalCards(myHand, G.ledSuit).map((card) => card.id) : [],
+  )}
   {@const isMyTurn = G.started && G.turnPlayer === session.playerID && G.phase !== 'finished'}
   {@const takeBlocked = !!pendingTake || !!pendingReject}
-  {@const canAct = isMyTurn && !activePickup && !takeBlocked && !(trickLocked && shownTrick && G.trick.length === 0)}
+  {@const canAct = isMyTurn && viewingSelf && !activePickup && !takeBlocked && !(trickLocked && shownTrick && G.trick.length === 0)}
   {@const nextVictim = G.active[(G.active.indexOf(session.playerID) + 1) % G.active.length]}
   {@const lastEvent = G.events[G.events.length - 1]}
   {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup && !pendingTake && !pendingReject}
@@ -378,12 +434,14 @@
         <p class="eyebrow">Game code</p>
         <button class="code" on:click={copyCode}>{copied ? 'Copied!' : session.matchID}</button>
       </div>
-      <div class="waste"><span>▧</span><strong>{G.wasteCount}</strong><small>waste</small></div>
+      <button type="button" class="waste secret-tap" on:click={() => peekGate?.tap()}>
+        <span>▧</span><strong>{G.wasteCount}</strong><small>waste</small>
+      </button>
     </header>
 
     {#if !G.started}
       <section class="waiting-card">
-        <div class="pulse">♠</div>
+        <button type="button" class="pulse secret-tap" on:click={() => peekGate?.tap()} aria-hidden="true">♠</button>
         <h1>Players are joining</h1>
         <p>Share the game code with friends. The game can start when every chosen seat is filled.</p>
         {#if G.shuffleReport}
@@ -442,7 +500,7 @@
             class:show-name={openNameFor === playerID}
             title={nameFor(playerID)}
             aria-label={`${nameFor(playerID)}, ${G.handCounts[playerID]} cards`}
-            on:click={() => toggleName(playerID)}
+            on:click={() => onOpponentTap(playerID)}
             use:registerChip={playerID}
             animate:flip={{ duration: 300 }}
           >
@@ -709,5 +767,12 @@
       mode={G.started ? 'game' : 'lobby'}
     />
   {/key}
+
+  <PeekGate
+    bind:this={peekGate}
+    unlocked={peekUnlocked}
+    onSubmit={requestPeekUnlock}
+    onCycle={cyclePeekView}
+  />
   </div>
 {/if}

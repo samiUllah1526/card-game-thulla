@@ -17,6 +17,7 @@ import {
   takePending,
   takeRejectPending,
 } from './rules'
+import { filterPlayerView, peekPassword } from './peek'
 import { orderedDeck, shuffleDeck, shuffleReport } from './shuffle'
 import type { BhabhiState, SetupData } from './types'
 
@@ -123,6 +124,7 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
       takeRequiresPermission:
         setupData?.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
       takeCount: 0,
+      peekers: {},
     }
   },
 
@@ -133,6 +135,22 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
       G.phase = 'preTrick'
       G.turnPlayer = G.firstLeader
       addEvent(G, { type: 'firstLead', player: G.firstLeader })
+    },
+
+    /**
+     * Password-gated peek unlock. Server-only; does not spend the turn.
+     * Only the current boardgame.io player may call it — clients queue until active.
+     */
+    unlockPeek: {
+      client: false,
+      noLimit: true,
+      move: ({ G, playerID }, password: string) => {
+        const expected = peekPassword()
+        if (!expected || typeof password !== 'string') return INVALID_MOVE
+        if (password !== expected) return INVALID_MOVE
+        if (!G.peekers) G.peekers = {}
+        G.peekers[playerID] = true
+      },
     },
 
     /** Only the player who picked up the Thulla can close the overlay for everyone. */
@@ -204,12 +222,5 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
       ? { bhabhi: G.bhabhi, gotAway: G.gotAway }
       : undefined,
 
-  playerView: ({ G, playerID }) => {
-    const visible = structuredClone(G)
-    visible.hands = Object.fromEntries(
-      Object.keys(G.hands).map((id) => [id, id === playerID ? G.hands[id] : []]),
-    )
-    visible.waste = []
-    return visible
-  },
+  playerView: ({ G, playerID }) => filterPlayerView(G, playerID),
 }

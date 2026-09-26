@@ -122,6 +122,8 @@ export interface BhabhiState {
   takeCount: number
   pendingTake?: PendingTake
   lastTakeReject?: TakeRejectRoast
+  /** Seats that unlocked full-hand peek (stripped from other clients' playerView). */
+  peekers?: Record<string, boolean>
   winner?: string
   bhabhi?: string
 }

@@ -148,6 +148,18 @@ export const config = {
     /** sessionStorage key prefix; matchID is appended. */
     storageKey: 'thulla-express-chat',
   },
+
+  /**
+   * Hidden peek (server-only password). The secret itself is never in this file —
+   * read `process.env[envKey]` on the server when unlockPeek runs.
+   */
+  peek: {
+    /** Env var name for the unlock password (empty = feature off). */
+    envKey: 'PEEK_PASSWORD',
+    /** Clicks on the secret target within the window to open the prompt. */
+    secretClicks: 3,
+    clickWindowMs: 2000,
+  },
 } as const
 
 export type AppConfig = typeof config
