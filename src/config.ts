@@ -143,10 +143,15 @@ export const config = {
   chat: {
     /** Max characters per message after trim. */
     maxLength: 200,
-    /** How many messages to keep in memory / sessionStorage. */
+    /** How many messages to keep per match in the DB / UI. */
     historyCap: 80,
-    /** sessionStorage key prefix; matchID is appended. */
-    storageKey: 'thulla-express-chat',
+  },
+
+  auth: {
+    cookieName: 'thulla_session',
+    sessionDays: 30,
+    minPasswordLength: 8,
+    maxDisplayName: 24,
   },
 
   /**

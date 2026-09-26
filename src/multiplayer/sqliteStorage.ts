@@ -3,6 +3,9 @@ import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
 import { Sync } from 'boardgame.io/internal'
 import type { LogEntry, Server, State, StorageAPI } from 'boardgame.io'
+import { applyAppSchema } from './appSchema'
+import { AppStore } from './appStore'
+import type { DealResult } from '../games/bhabhi-thulla/types'
 
 /**
  * SQLite MatchStore backend (single Node process).
@@ -10,12 +13,14 @@ import type { LogEntry, Server, State, StorageAPI } from 'boardgame.io'
  */
 export class SqliteStorage extends Sync {
   private db: Database.Database | null = null
+  private appStore: AppStore | null = null
 
   constructor(private readonly filename: string) {
     super()
   }
 
   connect(): void {
+    if (this.db) return
     mkdirSync(dirname(this.filename), { recursive: true })
     this.db = new Database(this.filename)
     this.db.pragma('journal_mode = WAL')
@@ -28,6 +33,13 @@ export class SqliteStorage extends Sync {
         log TEXT NOT NULL DEFAULT '[]'
       );
     `)
+    applyAppSchema(this.db)
+    this.appStore = new AppStore(this.db)
+  }
+
+  getAppStore(): AppStore {
+    if (!this.appStore) throw new Error('SqliteStorage.connect() must be called first')
+    return this.appStore
   }
 
   private requireDb(): Database.Database {
@@ -81,6 +93,9 @@ export class SqliteStorage extends Sync {
       state: JSON.stringify(state),
       log: JSON.stringify(log),
     })
+
+    const history = (state.G as { dealHistory?: DealResult[] } | undefined)?.dealHistory
+    this.appStore?.upsertDealResults(matchID, history)
   }
 
   setMetadata(matchID: string, metadata: Server.MatchData): void {
@@ -130,6 +145,7 @@ export class SqliteStorage extends Sync {
   }
 
   wipe(matchID: string): void {
+    this.appStore?.wipeMatchExtras(matchID)
     this.requireDb().prepare(`DELETE FROM matches WHERE id = ?`).run(matchID)
   }
 

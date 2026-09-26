@@ -375,10 +375,19 @@ input:not([type='radio']):not([type='checkbox']):not([type='range']), select {
   color: var(--ink); background: white; appearance: none;
 }
 input::placeholder { color: #96a098; }
-.panel {
-  display: grid; gap: 15px; margin-top: 18px; padding: 18px; border: 1px solid var(--line);
-  border-radius: 20px; background: rgba(255, 253, 246, .9); box-shadow: 0 10px 30px rgba(30, 55, 42, .06);
+.auth-panel { margin-top: 16px; gap: 12px; }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.auth-tabs button {
+  min-height: 40px; border: 1px solid var(--line); border-radius: 12px;
+  background: white; color: var(--muted); font-weight: 800;
 }
+.auth-tabs button.active { color: var(--green); border-color: var(--green); background: #edf3dc; }
+.auth-form { display: grid; gap: 12px; }
+.auth-hint { margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.auth-signed-in { display: grid; gap: 10px; }
+.auth-signed-in p { margin: 0; color: var(--ink); font-size: 14px; }
+.auth-signed-in strong { font-weight: 850; }
+input:disabled { background: #f3f6ef; color: var(--muted); }
 .section-title { display: flex; align-items: center; gap: 12px; }
 .section-title h2 { margin: 0; color: var(--ink); font-size: 17px; font-weight: 850; }
 .section-title p { margin-top: 2px; color: var(--muted); font-size: 12px; }
@@ -837,6 +846,15 @@ button.pulse {
   text-transform: none !important; letter-spacing: 0 !important;
   color: var(--muted) !important; font-size: 12px !important; font-weight: 700 !important;
 }
+.scoreboard {
+  width: 100%; max-width: 280px; margin: 6px 0 0; border-collapse: collapse;
+  font-size: 12px; font-weight: 700; text-transform: none; letter-spacing: 0; color: var(--ink);
+}
+.scoreboard th, .scoreboard td { padding: 5px 6px; text-align: left; }
+.scoreboard th { color: var(--green); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.scoreboard td:nth-child(2), .scoreboard td:nth-child(3),
+.scoreboard th:nth-child(2), .scoreboard th:nth-child(3) { text-align: center; }
+.scoreboard tr.loser td { color: #7d1f23; }
 .game-over-actions {
   display: grid; gap: 8px; width: 100%; max-width: 260px; margin-top: 6px;
 }

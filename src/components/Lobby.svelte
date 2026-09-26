@@ -1,9 +1,13 @@
 <script lang="ts">
   import { config } from '../config'
   import { createMatch, getSeats, joinMatch, saveSession } from '../multiplayer/lobby'
+  import { login, logout, signup } from '../multiplayer/authClient'
+  import type { PublicUser } from '../multiplayer/authTypes'
   import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
 
   export let onJoined: (session: Session) => void
+  export let user: PublicUser | null = null
+  export let onUser: (user: PublicUser | null) => void = () => {}
 
   const seatOptions = Array.from(
     { length: config.game.maxPlayers - config.game.minPlayers + 1 },
@@ -21,8 +25,15 @@
   let selectedSeat = ''
   let loading = false
   let error = ''
+  let authMode: 'signin' | 'signup' = 'signin'
+  let authEmail = ''
+  let authPassword = ''
+  let authName = ''
+  let authError = ''
+  let authLoading = false
 
   $: selectedAlgo = algorithms.find((entry) => entry.id === shuffleAlgorithm) ?? algorithms[0]
+  $: if (user) playerName = user.displayName
 
   async function create() {
     if (!playerName.trim()) {
@@ -79,6 +90,36 @@
       loading = false
     }
   }
+
+  async function submitAuth() {
+    authLoading = true
+    authError = ''
+    try {
+      const next =
+        authMode === 'signup'
+          ? await signup(authEmail, authPassword, authName)
+          : await login(authEmail, authPassword)
+      onUser(next)
+      authPassword = ''
+    } catch (reason) {
+      authError = reason instanceof Error ? reason.message : 'Could not sign in.'
+    } finally {
+      authLoading = false
+    }
+  }
+
+  async function signOut() {
+    authLoading = true
+    authError = ''
+    try {
+      await logout()
+      onUser(null)
+    } catch (reason) {
+      authError = reason instanceof Error ? reason.message : 'Could not sign out.'
+    } finally {
+      authLoading = false
+    }
+  }
 </script>
 
 <main class="lobby page">
@@ -99,9 +140,63 @@
     <span class="mini-card black">A♠</span>
   </section>
 
+  <section class="panel auth-panel">
+    {#if user}
+      <div class="auth-signed-in">
+        <p>Signed in as <strong>{user.displayName}</strong></p>
+        <button class="secondary" type="button" on:click={signOut} disabled={authLoading}>Sign out</button>
+      </div>
+    {:else}
+      <div class="auth-tabs" role="tablist">
+        <button
+          type="button"
+          class:active={authMode === 'signin'}
+          on:click={() => (authMode = 'signin')}
+        >Sign in</button>
+        <button
+          type="button"
+          class:active={authMode === 'signup'}
+          on:click={() => (authMode = 'signup')}
+        >Sign up</button>
+      </div>
+      <form class="auth-form" on:submit|preventDefault={submitAuth}>
+        <label>
+          <span>Email</span>
+          <input type="email" bind:value={authEmail} autocomplete="email" required />
+        </label>
+        {#if authMode === 'signup'}
+          <label>
+            <span>Display name</span>
+            <input bind:value={authName} maxlength={config.auth.maxDisplayName} autocomplete="nickname" required />
+          </label>
+        {/if}
+        <label>
+          <span>Password</span>
+          <input
+            type="password"
+            bind:value={authPassword}
+            minlength={config.auth.minPasswordLength}
+            autocomplete={authMode === 'signup' ? 'new-password' : 'current-password'}
+            required
+          />
+        </label>
+        <button class="primary" type="submit" disabled={authLoading}>
+          {authMode === 'signup' ? 'Create account' : 'Sign in'}
+        </button>
+      </form>
+      <p class="auth-hint">Optional — guests can still play with a display name.</p>
+    {/if}
+    {#if authError}<p class="error" role="alert">{authError}</p>{/if}
+  </section>
+
   <label>
     <span>Your name</span>
-    <input bind:value={playerName} maxlength="24" placeholder="Enter a display name" />
+    <input
+      bind:value={playerName}
+      maxlength="24"
+      placeholder="Enter a display name"
+      disabled={!!user}
+    />
   </label>
 
   <section class="panel">

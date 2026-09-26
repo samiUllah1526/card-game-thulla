@@ -1,40 +1,6 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { config } from '../config'
-import {
-  loadChatCache,
-  mergeChatMessages,
-  normalizeChatMessage,
-  saveChatCache,
-  sanitizeChatText,
-  type TableChatMessage,
-} from './chat'
-
-const matchID = 'test-match'
-const memory = new Map<string, string>()
-
-beforeAll(() => {
-  Object.defineProperty(globalThis, 'sessionStorage', {
-    configurable: true,
-    value: {
-      getItem: (key: string) => memory.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        memory.set(key, value)
-      },
-      removeItem: (key: string) => {
-        memory.delete(key)
-      },
-      clear: () => memory.clear(),
-      key: () => null,
-      get length() {
-        return memory.size
-      },
-    },
-  })
-})
-
-afterEach(() => {
-  memory.clear()
-})
+import { mergeChatMessages, normalizeChatMessage, sanitizeChatText, type TableChatMessage } from './chat'
 
 describe('sanitizeChatText', () => {
   it('trims and collapses whitespace', () => {
@@ -61,6 +27,16 @@ describe('normalizeChatMessage', () => {
         payload: { text: '  hi  ', at: 100 },
       }),
     ).toEqual({ id: 'm1', sender: '0', text: 'hi', at: 100 })
+  })
+
+  it('prefers payload.id so socket and DB rows merge', () => {
+    expect(
+      normalizeChatMessage({
+        id: 'socket-row',
+        sender: '0',
+        payload: { id: 'stable', text: 'hi', at: 1 },
+      }),
+    ).toEqual({ id: 'stable', sender: '0', text: 'hi', at: 1 })
   })
 
   it('accepts plain string payloads', () => {
@@ -100,22 +76,5 @@ describe('mergeChatMessages', () => {
       at: index,
     }))
     expect(mergeChatMessages([], many, 3).map((m) => m.id)).toEqual(['2', '3', '4'])
-  })
-})
-
-describe('chat session cache', () => {
-  it('round-trips messages for a match', () => {
-    const messages: TableChatMessage[] = [
-      { id: '1', sender: '0', text: 'hello', at: 1 },
-      { id: '2', sender: '1', text: 'world', at: 2 },
-    ]
-    saveChatCache(matchID, messages)
-    expect(loadChatCache(matchID)).toEqual(messages)
-  })
-
-  it('returns empty for missing or corrupt data', () => {
-    expect(loadChatCache('missing')).toEqual([])
-    sessionStorage.setItem(`${config.chat.storageKey}:${matchID}`, '{not json')
-    expect(loadChatCache(matchID)).toEqual([])
   })
 })

@@ -4,11 +4,10 @@ import { get, writable, type Readable } from 'svelte/store'
 import { config } from '../config'
 import { BhabhiThulla } from '../games/bhabhi-thulla/game'
 import type { BhabhiState, Session } from '../games/bhabhi-thulla/types'
+import { fetchMatchChat, persistMatchChat } from './authClient'
 import {
-  loadChatCache,
   mergeChatMessages,
   normalizeChatMessage,
-  saveChatCache,
   sanitizeChatText,
   type TableChatMessage,
 } from './chat'
@@ -50,16 +49,20 @@ export function connectGame(session: Session): GameConnection {
     debug: false,
   })
   const state = writable<GameSnapshot | null>(null)
-  const chat = writable<TableChatMessage[]>(loadChatCache(session.matchID))
+  const chat = writable<TableChatMessage[]>([])
 
-  const syncChat = () => {
-    const incoming = (client.chatMessages ?? [])
+  const syncChat = (incoming: TableChatMessage[] = []) => {
+    const fromSocket = (client.chatMessages ?? [])
       .map((entry) => normalizeChatMessage(entry))
       .filter((item): item is TableChatMessage => !!item)
-    const merged = mergeChatMessages(get(chat), incoming, config.chat.historyCap)
-    chat.set(merged)
-    saveChatCache(session.matchID, merged)
+    chat.set(mergeChatMessages(get(chat), [...fromSocket, ...incoming], config.chat.historyCap))
   }
+
+  void fetchMatchChat(session)
+    .then((messages) => syncChat(messages))
+    .catch(() => {
+      // Live socket chat still works if history hasn't loaded yet.
+    })
 
   const unsubscribe = client.subscribe((nextState) => {
     state.set(nextState as GameSnapshot | null)
@@ -73,7 +76,11 @@ export function connectGame(session: Session): GameConnection {
     sendChat: (text) => {
       const cleaned = sanitizeChatText(text, config.chat.maxLength)
       if (!cleaned) return false
-      client.sendChatMessage({ text: cleaned, at: Date.now() })
+      const message = { id: crypto.randomUUID(), text: cleaned, at: Date.now() }
+      client.sendChatMessage(message)
+      void persistMatchChat(session, message).catch(() => {
+        // Socket already delivered the line; DB write can retry on the next send.
+      })
       return true
     },
     moves: {

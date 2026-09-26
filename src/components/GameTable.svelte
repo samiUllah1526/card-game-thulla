@@ -7,6 +7,7 @@
   import type {
     BhabhiState,
     Card,
+    DealResult,
     GameEvent,
     LobbySeat,
     PickupEvent,
@@ -16,6 +17,8 @@
   } from '../games/bhabhi-thulla/types'
   import type { GameConnection, GameSnapshot } from '../multiplayer/gameClient'
   import { getSeats } from '../multiplayer/lobby'
+  import { fetchMatchLeaderboard } from '../multiplayer/authClient'
+  import { tallyLeaderboard, type MatchLeaderboard } from '../multiplayer/leaderboard'
   import { legalCards } from '../games/bhabhi-thulla/rules'
   import { formatShuffleReport } from '../games/bhabhi-thulla/shuffle'
   import { peekLog } from '../games/bhabhi-thulla/peekLog'
@@ -71,6 +74,8 @@
   let roastTaunt = ''
   let shaking = false
   let sawFinished = false
+  let scoreboard: MatchLeaderboard | null = null
+  let lastDealCount = -1
 
   // ---- Take-reject roast -------------------------------------------------
   let takeRejectTaunt = ''
@@ -182,6 +187,12 @@
         trickLocked = false
         seenTrickID = G.lastTrick?.id ?? 0
       }
+
+      const dealCount = G.dealHistory?.length ?? 0
+      if (dealCount !== lastDealCount) {
+        lastDealCount = dealCount
+        if (dealCount > 0) void loadScoreboard(G.dealHistory)
+      }
     }
     state = value
   })
@@ -211,6 +222,14 @@
 
   function dismissRoast() {
     roastOpen = false
+  }
+
+  async function loadScoreboard(fallbackDeals: DealResult[]) {
+    try {
+      scoreboard = await fetchMatchLeaderboard(session)
+    } catch {
+      scoreboard = tallyLeaderboard(fallbackDeals ?? [], seats)
+    }
   }
 
   onDestroy(() => {
@@ -492,15 +511,6 @@
   {@const nextVictim = G.active[(G.active.indexOf(session.playerID) + 1) % G.active.length]}
   {@const lastEvent = G.events[G.events.length - 1]}
   {@const showLastTrick = shownTrick && G.trick.length === 0 && !activePickup && !pendingTake && !pendingReject}
-  {@const bhabhiTally = (() => {
-    const counts = new Map<string, number>()
-    for (const result of G.dealHistory ?? []) {
-      counts.set(result.bhabhi, (counts.get(result.bhabhi) ?? 0) + 1)
-    }
-    return [...counts.entries()]
-      .filter(([, count]) => count > 1)
-      .map(([id, count]) => `${nameFor(id)} ×${count}`)
-  })()}
 
   <div class="table-shell" class:waiting={!G.started} class:playing={G.started}>
   <main class="table-page" class:shaking class:finished={G.phase === 'finished'}>
@@ -713,14 +723,28 @@
             <h2>{G.bhabhi === session.playerID ? 'You are Bhabhi' : `${nameFor(G.bhabhi!)} is Bhabhi`}</h2>
             <p class="game-over-sub">{roastTaunt || (G.bhabhi === session.playerID ? 'Better luck next deal.' : 'Point and laugh responsibly.')}</p>
             {#if G.dealHistory?.length}
+              {@const board = scoreboard ?? tallyLeaderboard(G.dealHistory, seats)}
+              {#if board.players.length}
+                <table class="scoreboard">
+                  <thead>
+                    <tr><th>Player</th><th>Got away</th><th>Bhabhi</th></tr>
+                  </thead>
+                  <tbody>
+                    {#each board.players as row (row.playerID)}
+                      <tr class:loser={row.playerID === G.bhabhi}>
+                        <td>{row.name}</td>
+                        <td>{row.gotAway}</td>
+                        <td>{row.bhabhi}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              {/if}
               <ul class="deal-history">
-                {#each G.dealHistory as result (result.deal)}
+                {#each (board.deals.length ? board.deals : G.dealHistory) as result (result.deal)}
                   <li>Deal {result.deal} — {nameFor(result.bhabhi)} is Bhabhi</li>
                 {/each}
               </ul>
-              {#if bhabhiTally.length}
-                <p class="deal-tally">{bhabhiTally.join(' · ')}</p>
-              {/if}
             {/if}
             <div class="game-over-actions">
               {#if session.playerID === '0'}

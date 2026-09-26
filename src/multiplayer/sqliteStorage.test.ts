@@ -85,4 +85,46 @@ describe('SqliteStorage', () => {
     db.wipe('done')
     expect(db.listMatches()).toEqual(['live'])
   })
+
+  it('upserts deal_results from G.dealHistory on setState', () => {
+    open()
+    db.createMatch('m1', {
+      initialState: fakeState(0),
+      metadata: fakeMeta({
+        players: {
+          0: { id: 0, name: 'Ali', credentials: 'c0' },
+          1: { id: 1, name: 'Bea', credentials: 'c1' },
+        },
+      }),
+    })
+
+    db.setState('m1', {
+      ...fakeState(1),
+      G: {
+        dealHistory: [{ deal: 1, bhabhi: '0', gotAway: ['1'], at: 50 }],
+      },
+    })
+    db.setState('m1', {
+      ...fakeState(2),
+      G: {
+        dealHistory: [
+          { deal: 1, bhabhi: '0', gotAway: ['1'], at: 50 },
+          { deal: 2, bhabhi: '1', gotAway: ['0'], at: 80 },
+        ],
+      },
+    })
+
+    const board = db.getAppStore().getLeaderboard('m1')
+    expect(board.deals).toHaveLength(2)
+    expect(board.players.find((row) => row.playerID === '0')).toMatchObject({
+      name: 'Ali',
+      bhabhi: 1,
+      gotAway: 1,
+    })
+    expect(board.players.find((row) => row.playerID === '1')).toMatchObject({
+      name: 'Bea',
+      bhabhi: 1,
+      gotAway: 1,
+    })
+  })
 })

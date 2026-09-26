@@ -9,6 +9,7 @@ export interface TableChatMessage {
 }
 
 export interface ChatPayload {
+  id?: unknown
   text?: unknown
   at?: unknown
 }
@@ -31,6 +32,7 @@ export function normalizeChatMessage(entry: {
 }): TableChatMessage | null {
   let text: string | null = null
   let at = Date.now()
+  let id = entry.id
 
   if (typeof entry.payload === 'string') {
     text = sanitizeChatText(entry.payload)
@@ -38,10 +40,11 @@ export function normalizeChatMessage(entry: {
     const payload = entry.payload as ChatPayload
     if (typeof payload.text === 'string') text = sanitizeChatText(payload.text)
     if (typeof payload.at === 'number' && Number.isFinite(payload.at)) at = payload.at
+    if (typeof payload.id === 'string' && payload.id) id = payload.id
   }
 
-  if (!text || !entry.id || entry.sender == null || entry.sender === '') return null
-  return { id: entry.id, sender: String(entry.sender), text, at }
+  if (!text || !id || entry.sender == null || entry.sender === '') return null
+  return { id, sender: String(entry.sender), text, at }
 }
 
 /** Merge by id, newest last, capped. */
@@ -59,53 +62,4 @@ export function mergeChatMessages(
     return a.id.localeCompare(b.id)
   })
   return merged.length > historyCap ? merged.slice(merged.length - historyCap) : merged
-}
-
-function storageKey(matchID: string): string {
-  return `${config.chat.storageKey}:${matchID}`
-}
-
-/** Load ring buffer for this match (same phone / tab). */
-export function loadChatCache(matchID: string): TableChatMessage[] {
-  if (typeof sessionStorage === 'undefined') return []
-  try {
-    const raw = sessionStorage.getItem(storageKey(matchID))
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return mergeChatMessages(
-      [],
-      parsed
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null
-          const row = item as Partial<TableChatMessage>
-          if (
-            typeof row.id !== 'string' ||
-            typeof row.sender !== 'string' ||
-            typeof row.text !== 'string' ||
-            typeof row.at !== 'number'
-          ) {
-            return null
-          }
-          const text = sanitizeChatText(row.text)
-          if (!text) return null
-          return { id: row.id, sender: row.sender, text, at: row.at }
-        })
-        .filter((item): item is TableChatMessage => !!item),
-    )
-  } catch {
-    return []
-  }
-}
-
-export function saveChatCache(matchID: string, messages: TableChatMessage[]): void {
-  if (typeof sessionStorage === 'undefined') return
-  try {
-    sessionStorage.setItem(
-      storageKey(matchID),
-      JSON.stringify(messages.slice(-config.chat.historyCap)),
-    )
-  } catch {
-    // Quota or private mode — chat still works in-memory.
-  }
 }
