@@ -23,6 +23,15 @@
   import { formatLocalDateTime, toUtcIso } from '../lib/time'
   import { legalCards } from '../games/bhabhi-thulla/rules'
   import { peekLog } from '../games/bhabhi-thulla/peekLog'
+  import {
+    bhabhiLine,
+    denyLine,
+    setVoiceOn,
+    silence,
+    speak,
+    thullaLine,
+    voiceOn,
+  } from '../games/bhabhi-thulla/voice'
   import TableChat from './TableChat.svelte'
   import PeekGate from './PeekGate.svelte'
 
@@ -86,7 +95,16 @@
   let seenTakeAskID = 0
   let seenTakeRejectID = 0
 
-  $: if (watching && snapshot) seats = snapshot.seats
+  // ---- Spoken roasts ------------------------------------------------------
+  let voice = voiceOn()
+  let spokenThulla = 0
+  let spokenReject = 0
+  let spokenFinish = false
+
+  $: if (watching && snapshot) {
+    seats = snapshot.seats
+    speakMoments(snapshot.G)
+  }
 
   const live = connection
   const unsubscribe = live
@@ -201,12 +219,45 @@
         lastDealCount = dealCount
         if (dealCount > 0) void loadScoreboard(G.dealHistory)
       }
+
+      speakMoments(G)
     }
     const previousCount = state?.G?.seatCount
     state = value
     if (G && G.seatCount !== previousCount) void refreshSeats()
   })
     : () => {}
+
+  function speakMoments(G: BhabhiState) {
+    const pickup = G.lastPickup
+    if (pickup && !pickup.dismissed && pickup.id !== spokenThulla) {
+      spokenThulla = pickup.id
+      speak(thullaLine(nameFor(pickup.giver), nameFor(pickup.receiver), pickup.cards.length, pickup.id))
+    }
+
+    const reject = G.lastTakeReject
+    if (reject && !reject.dismissed && reject.id !== spokenReject) {
+      spokenReject = reject.id
+      speak(denyLine(nameFor(reject.from), reject.id))
+    }
+
+    if (G.phase === 'finished' && G.bhabhi && !spokenFinish) {
+      spokenFinish = true
+      const mine = !watching && G.bhabhi === session.playerID
+      speak(bhabhiLine(nameFor(G.bhabhi), mine, G.dealHistory?.length ?? 1))
+    }
+    if (G.phase !== 'finished' && spokenFinish) {
+      spokenFinish = false
+      spokenThulla = 0
+      spokenReject = 0
+    }
+  }
+
+  function toggleVoice() {
+    voice = !voice
+    setVoiceOn(voice)
+    if (!voice) silence()
+  }
 
   function vibrate(pattern: readonly number[]) {
     try {
@@ -244,6 +295,7 @@
   }
 
   onDestroy(() => {
+    silence()
     unsubscribe()
     if (poll) window.clearInterval(poll)
     if (nameTimer) window.clearTimeout(nameTimer)
@@ -565,6 +617,28 @@
   }
 </script>
 
+{#snippet voiceButton()}
+  <button
+    type="button"
+    class="voice-button"
+    class:off={!voice}
+    aria-pressed={voice}
+    aria-label={voice ? 'Turn game voice off' : 'Turn game voice on'}
+    on:click={toggleVoice}
+  >
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path class="speaker" d="M4 9h3.6L12 5.2v13.6L7.6 15H4z" />
+      {#if voice}
+        <path class="wave" d="M15.2 9.1a4.2 4.2 0 0 1 0 5.8" />
+        <path class="wave" d="M17.7 6.6a8 8 0 0 1 0 10.8" />
+      {:else}
+        <path class="wave" d="M16 9.5l4.5 5M20.5 9.5l-4.5 5" />
+      {/if}
+    </svg>
+    <span class="voice-tip">{voice ? 'Game voice on' : 'Game voice off'}</span>
+  </button>
+{/snippet}
+
 {#if watching}
   {#if !snapshot}
     <main class="loading page"><div class="spinner"></div><p>Opening the table…</p></main>
@@ -584,6 +658,7 @@
               <button type="button" class="copy-link" on:click={() => copyShare('link')}>
                 {copied === 'link' ? 'Copied!' : 'Copy link'}
               </button>
+              {@render voiceButton()}
             </div>
           </div>
           <div class="waste">
@@ -730,6 +805,7 @@
           <button type="button" class="copy-link" on:click={() => copyShare('link')}>
             {copied === 'link' ? 'Copied!' : 'Copy link'}
           </button>
+          {@render voiceButton()}
         </div>
       </div>
       <button type="button" class="waste secret-tap" on:click={() => peekGate?.tap()}>
