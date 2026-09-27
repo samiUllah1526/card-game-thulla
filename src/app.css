@@ -424,6 +424,26 @@ input:disabled { background: #f3f6ef; color: var(--muted); }
 .divider { display: flex; align-items: center; gap: 12px; margin: 21px 0 0; color: #8a968d; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
 .divider::before, .divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }
 .error { margin: 14px 3px 0; color: #a52f35; font-size: 13px; font-weight: 700; }
+.beta-notice {
+  display: grid; gap: 10px; margin: 16px 0 18px; padding: 16px;
+  border: 2px solid #efd27a; border-radius: 18px;
+  background: linear-gradient(160deg, #fff8df, #ffe9a8);
+  box-shadow: 0 10px 24px rgba(180, 130, 20, .14);
+}
+.beta-badge {
+  width: fit-content; padding: 4px 10px; border-radius: 999px;
+  color: #674e0f; background: #ffd76a;
+  font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+}
+.beta-copy { display: grid; gap: 4px; }
+.beta-copy strong { color: var(--ink); font-size: 16px; font-weight: 850; line-height: 1.25; }
+.beta-copy p { margin: 0; color: #674e0f; font-size: 13px; line-height: 1.4; font-weight: 650; }
+.beta-whatsapp {
+  display: grid; place-items: center; min-height: 44px; padding: 0 14px;
+  border-radius: 12px; color: white; background: #128c7e;
+  font-size: 14px; font-weight: 850; text-decoration: none;
+  box-shadow: 0 6px 14px rgba(18, 140, 126, .28);
+}
 .footnote { margin: 22px 0 0; color: var(--muted); text-align: center; font-size: 11px; }
 
 .scale-label { display: grid; gap: 8px; }
