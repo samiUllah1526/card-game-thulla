@@ -1,6 +1,8 @@
 <script lang="ts">
   import { config } from '../config'
+  import { seatsToFill } from '../bots/plan'
   import { createMatch, getSeats, joinMatch, saveSession } from '../multiplayer/lobby'
+  import { fillBots } from '../multiplayer/authClient'
   import {
     fetchAuthProviders,
     fetchMatchGate,
@@ -30,6 +32,8 @@
   let shuffleAlgorithm: string = config.shuffle.defaultAlgorithm
   let shuffleScale = config.shuffle.defaultScale
   let takeMode: 'free' | 'ask' = config.game.defaultTakeRequiresPermission ? 'ask' : 'free'
+  let botChoice = '0'
+  let botDifficulty = config.bots.levels[1]?.id ?? config.bots.levels[0].id
   let matchID = ''
   let seats: LobbySeat[] = []
   let selectedSeat = ''
@@ -48,6 +52,16 @@
   let providersRequested = false
 
   $: selectedAlgo = algorithms.find((entry) => entry.id === shuffleAlgorithm) ?? algorithms[0]
+  $: botSeatMax = Math.max(0, Number(playerCount) - 1)
+  $: botChoices = [
+    { id: '0', label: 'No bots' },
+    ...Array.from({ length: botSeatMax }, (_, index) => ({
+      id: String(index + 1),
+      label: index === 0 ? '1 bot' : `${index + 1} bots`,
+    })),
+    ...(botSeatMax > 0 ? [{ id: 'rest', label: 'Everyone but me' }] : []),
+  ]
+  $: if (!botChoices.some((choice) => choice.id === botChoice)) botChoice = '0'
   $: if (user) playerName = user.displayName
   $: if (tab === 'account' && !user) void loadProviders()
 
@@ -65,6 +79,16 @@
         takeRequiresPermission: takeMode === 'ask',
       })
       saveSession(session)
+      const botSeats = seatsToFill(Number(playerCount), botChoice)
+      if (botSeats.length > 0) {
+        try {
+          await fillBots(session, botSeats, botDifficulty)
+        } catch (reason) {
+          const detail = reason instanceof Error ? reason.message : 'The bots could not sit.'
+          createError = `Table ${session.matchID} is open, but ${detail} Join that code and seat them from the waiting room.`
+          return
+        }
+      }
       onJoined(session)
     } catch (reason) {
       createError = reason instanceof Error ? reason.message : 'Could not create the game.'
@@ -307,7 +331,26 @@
           {/each}
         </select>
       </label>
-      <p class="join-hint">Add a seat later, or start once 3 people have sat.</p>
+      <p class="join-hint">Add a seat later, or start once 3 seats are filled. Bots count.</p>
+      <label>
+        <span>Bot seats</span>
+        <select bind:value={botChoice}>
+          {#each botChoices as choice}
+            <option value={choice.id}>{choice.label}</option>
+          {/each}
+        </select>
+      </label>
+      {#if botChoice !== '0'}
+        <label>
+          <span>Bot difficulty</span>
+          <select bind:value={botDifficulty}>
+            {#each config.bots.levels as level}
+              <option value={level.id}>{level.label}</option>
+            {/each}
+          </select>
+        </label>
+        <p class="join-hint">{config.bots.levels.find((level) => level.id === botDifficulty)?.hint}</p>
+      {/if}
       <label>
         <span>Shuffle method</span>
         <select bind:value={shuffleAlgorithm}>
@@ -446,5 +489,5 @@
     </section>
   {/if}
 
-  <p class="footnote">{config.game.minPlayers}–{config.game.maxPlayers} human players · Each player uses their own phone</p>
+  <p class="footnote">{config.game.minPlayers}–{config.game.maxPlayers} seats · Empty seats can be bots · Each person uses their own phone</p>
 </main>

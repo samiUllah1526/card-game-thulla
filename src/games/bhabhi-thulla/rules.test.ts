@@ -109,7 +109,14 @@ describe('Bhabhi Thulla rules', () => {
     })
     expect(state.lastPickup?.cards.map((card) => card.id)).toEqual(['S-10', 'S-12', 'H-3'])
     expect(pickupPending(state)).toBe(true)
-    expect(state.events.at(-1)).toMatchObject({ type: 'thulla', giver: '2', receiver: '1', count: 3 })
+    expect(state.events.at(-1)).toMatchObject({
+      type: 'thulla',
+      giver: '2',
+      receiver: '1',
+      count: 3,
+      suit: 'S',
+    })
+    expect(state.shownVoids?.['2']).toEqual(['S'])
   })
 
   it('keeps the last completed trick visible with its winner when everyone followed suit', () => {

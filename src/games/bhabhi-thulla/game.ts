@@ -18,6 +18,7 @@ import {
   takePending,
   takeRejectPending,
 } from './rules'
+import { isBotDifficulty } from '../../bots/difficulty'
 import { filterPlayerView, expectedPeekPassword } from './peek'
 import { peekLog } from './peekLog'
 import { orderedDeck, shuffleDeck, shuffleReport, type ShuffleRandom } from './shuffle'
@@ -40,6 +41,8 @@ export interface CreateDealtOpts {
   seats?: string[]
   seatCount?: number
   seated?: Record<string, boolean>
+  /** Kept across Start and Play again. Cleared only when that seat leaves. */
+  bots?: BhabhiState['bots']
 }
 
 export function clampSeatCount(value: number | undefined): number {
@@ -86,6 +89,8 @@ export function createWaitingState(opts: { numPlayers: number; setupData?: Setup
     seatCount,
     seated: {},
     dealtSeats: [],
+    bots: {},
+    shownVoids: {},
     phase: 'waiting',
     events: [{ id: 1, type: 'waiting' }],
     shuffleReport: shuffleReport(deck, deck, options),
@@ -140,6 +145,8 @@ export function createDealtState(opts: CreateDealtOpts): BhabhiState {
     seatCount: opts.seatCount ?? opts.numPlayers,
     seated: opts.seated ?? Object.fromEntries(seated.map((id) => [id, true])),
     dealtSeats: group,
+    bots: { ...(opts.bots ?? {}) },
+    shownVoids: {},
     phase: autoStart ? 'preTrick' : 'waiting',
     events: autoStart
       ? [{ id: 1, type: 'firstLead', player: firstLeader }]
@@ -231,6 +238,27 @@ const markSeated = {
   },
 }
 
+/**
+ * The seated bot publishes its difficulty. Null removes the badge.
+ * Host-only seating is enforced by the bot API; this move only records it.
+ */
+const noteBot = {
+  noLimit: true,
+  ignoreStaleStateID: true,
+  move: ({ G, playerID }: { G: BhabhiState; playerID: string }, difficulty: unknown) => {
+    if (!playerID || G.started) return INVALID_MOVE
+    const next = { ...(G.bots ?? {}) }
+    if (difficulty == null) {
+      delete next[playerID]
+      G.bots = next
+      return
+    }
+    if (playerID === G.hostID || !isBotDifficulty(difficulty)) return INVALID_MOVE
+    next[playerID] = difficulty
+    G.bots = next
+  },
+}
+
 function canStartTake(G: BhabhiState, playerID: string): boolean {
   return (
     G.started &&
@@ -257,6 +285,7 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
   moves: {
     /** Records this authenticated seat. Other players reach it from the leave stage. */
     markSeated,
+    noteBot,
 
     /** Host opens one more seat while people are still arriving. */
     addSeat: ({ G, playerID }) => {
@@ -291,6 +320,7 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
           autoStart: true,
           seatCount: G.seatCount,
           seated: G.seated,
+          bots: G.bots,
         })
         Object.assign(G, next)
       },
@@ -329,6 +359,7 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
           autoStart: true,
           seatCount: G.seatCount,
           seated: G.seated,
+          bots: G.bots,
         })
 
         Object.assign(G, next)
@@ -445,7 +476,7 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
     activePlayers: { currentPlayer: Stage.NULL, others: 'leave' },
     stages: {
       leave: {
-        moves: { leaveGame, markSeated },
+        moves: { leaveGame, markSeated, noteBot },
       },
     },
     order: {

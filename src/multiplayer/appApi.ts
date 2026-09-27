@@ -2,6 +2,7 @@ import Router from '@koa/router'
 import type { Context } from 'koa'
 import bodyParser from 'koa-bodyparser'
 import { config } from '../config'
+import type { BotService } from '../bots/service'
 import { sanitizeChatText } from './chat'
 import { AppError, type AppStore } from './appStore'
 import { googleClientId, verifyGoogleCredential } from './googleAuth'
@@ -15,7 +16,7 @@ const cookieOpts = {
   maxAge: config.auth.sessionDays * 24 * 60 * 60 * 1000,
 }
 
-export function createAppRouter(store: AppStore | null): Router {
+export function createAppRouter(store: AppStore | null, bots: BotService | null = null): Router {
   const router = new Router()
   router.use(bodyParser())
 
@@ -23,6 +24,13 @@ export function createAppRouter(store: AppStore | null): Router {
     if (store) return store
     ctx.status = 503
     ctx.body = { error: 'Accounts are only available with the sqlite match store.' }
+    return null
+  }
+
+  const needBots = (ctx: Context): BotService | null => {
+    if (bots) return bots
+    ctx.status = 503
+    ctx.body = { error: 'Bots are only available with the sqlite match store.' }
     return null
   }
 
@@ -256,6 +264,63 @@ export function createAppRouter(store: AppStore | null): Router {
       const matchID = String(ctx.params.id)
       requireSeat(ctx, db, matchID)
       ctx.body = db.getLeaderboard(matchID)
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.post('/api/matches/:id/bots/fill', async (ctx) => {
+    const db = needStore(ctx)
+    const service = needBots(ctx)
+    if (!db || !service) return
+    try {
+      const matchID = String(ctx.params.id)
+      const seat = requireSeat(ctx, db, matchID)
+      const body = jsonBody(ctx)
+      const seats = Array.isArray(body.seats) ? body.seats.map((id) => String(id)) : []
+      ctx.body = await service.fill({
+        matchID,
+        actorID: seat.playerID,
+        seats,
+        difficulty: str(body.difficulty),
+      })
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.put('/api/matches/:id/bots/:seat', async (ctx) => {
+    const db = needStore(ctx)
+    const service = needBots(ctx)
+    if (!db || !service) return
+    try {
+      const matchID = String(ctx.params.id)
+      const seat = requireSeat(ctx, db, matchID)
+      const body = jsonBody(ctx)
+      ctx.body = await service.seat({
+        matchID,
+        actorID: seat.playerID,
+        seat: String(ctx.params.seat),
+        difficulty: str(body.difficulty),
+      })
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.delete('/api/matches/:id/bots/:seat', async (ctx) => {
+    const db = needStore(ctx)
+    const service = needBots(ctx)
+    if (!db || !service) return
+    try {
+      const matchID = String(ctx.params.id)
+      const seat = requireSeat(ctx, db, matchID)
+      await service.clear({
+        matchID,
+        actorID: seat.playerID,
+        seat: String(ctx.params.seat),
+      })
+      ctx.body = { ok: true }
     } catch (reason) {
       sendError(ctx, reason)
     }

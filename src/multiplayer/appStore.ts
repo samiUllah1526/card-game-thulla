@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3'
 import type { Server } from 'boardgame.io'
 import { config } from '../config'
 import { utcNowMs } from '../lib/time'
-import type { BhabhiState, DealResult, LobbySeat } from '../games/bhabhi-thulla/types'
+import type { BhabhiState, BotDifficulty, DealResult, LobbySeat } from '../games/bhabhi-thulla/types'
 import { filterPlayerView } from '../games/bhabhi-thulla/peek'
 import type { TableChatMessage } from './chat'
 import { tallyLeaderboard, type MatchLeaderboard } from './leaderboard'
@@ -140,6 +140,63 @@ export class AppStore {
     const seat = metadata.players[Number(playerID)]
     if (!seat || seat.credentials !== credentials) {
       throw new AppError('You are not seated at this table.', 403)
+    }
+  }
+
+  /** Waiting-room facts the bot seat service uses to authorize a host. */
+  lobby(matchID: string): { hostID: string; started: boolean; closed: boolean; seatCount: number } | null {
+    const game = this.matchGame(matchID)
+    if (!game) return null
+    return {
+      hostID: String(game.hostID ?? '0'),
+      started: !!game.started,
+      closed: this.isClosed(matchID),
+      seatCount: game.seatCount ?? config.game.maxPlayers,
+    }
+  }
+
+  occupant(matchID: string, playerID: string): { name?: string; credentials?: string } | null {
+    const metadata = this.matchMetadata(matchID)
+    const seat = metadata?.players?.[Number(playerID)]
+    if (!seat) return null
+    return { name: seat.name, credentials: seat.credentials }
+  }
+
+  takenNames(matchID: string): string[] {
+    return this.seatList(matchID)
+      .map((seat) => seat.name?.trim() ?? '')
+      .filter((name) => name.length > 0)
+  }
+
+  releaseMember(matchID: string, playerID: string): void {
+    this.db
+      .prepare(`DELETE FROM seat_members WHERE match_id = ? AND player_id = ?`)
+      .run(matchID, playerID)
+  }
+
+  seated(matchID: string): Record<string, boolean> | undefined {
+    const row = this.db.prepare(`SELECT state FROM matches WHERE id = ?`).get(matchID) as
+      | { state: string | null }
+      | undefined
+    if (!row?.state) return undefined
+    try {
+      const state = JSON.parse(row.state) as { G?: { seated?: Record<string, boolean> } }
+      return state.G?.seated
+    } catch {
+      return undefined
+    }
+  }
+
+  bots(matchID: string): Record<string, BotDifficulty> | undefined {
+    const row = this.db.prepare(`SELECT state FROM matches WHERE id = ?`).get(matchID) as
+      | { state: string | null }
+      | undefined
+    if (!row?.state) return undefined
+    try {
+      const state = JSON.parse(row.state) as { G?: { bots?: Record<string, BotDifficulty> } }
+      return state.G?.bots
+    } catch {
+      return undefined
     }
   }
 

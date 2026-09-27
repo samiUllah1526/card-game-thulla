@@ -244,12 +244,18 @@ export function resolveTrick(state: BhabhiState, thulla: boolean): string {
       cards,
       dismissed: false,
     }
+    const giver = thullaPlay.playerID
+    const prior = state.shownVoids?.[giver] ?? []
+    if (!prior.includes(ledSuit)) {
+      state.shownVoids = { ...(state.shownVoids ?? {}), [giver]: [...prior, ledSuit] }
+    }
     nextLeader = highest.playerID
     addEvent(state, {
       type: 'thulla',
-      giver: thullaPlay.playerID,
+      giver,
       receiver: highest.playerID,
       count: cards.length,
+      suit: ledSuit,
     })
   } else {
     state.waste.push(...state.trick.map((play) => play.card))

@@ -18,7 +18,14 @@
   import type { GameConnection, GameSnapshot } from '../multiplayer/gameClient'
   import type { WatchSnapshot } from '../multiplayer/watchTypes'
   import { getSeats, joinUrl } from '../multiplayer/lobby'
-  import { closeMatch, departMatch, fetchMatchGate, fetchMatchLeaderboard } from '../multiplayer/authClient'
+  import {
+    clearBot,
+    closeMatch,
+    departMatch,
+    fetchMatchGate,
+    fetchMatchLeaderboard,
+    seatBot,
+  } from '../multiplayer/authClient'
   import { tallyLeaderboard, type MatchLeaderboard } from '../multiplayer/leaderboard'
   import { formatLocalDateTime, toUtcIso } from '../lib/time'
   import { legalCards } from '../games/bhabhi-thulla/rules'
@@ -46,6 +53,13 @@
 
   let state: GameSnapshot | null = null
   let seats: LobbySeat[] = []
+  let seenBots = ''
+  let nextBotLevel = config.bots.levels[1]?.id ?? config.bots.levels[0].id
+  let botBusy = ''
+  let botError = ''
+  let sawSocket = false
+  let dropped = false
+  let dropTimer: number | null = null
   let selectedCard = ''
   let copied: 'code' | 'link' | null = null
   let poll: number | undefined
@@ -223,8 +237,23 @@
       speakMoments(G)
     }
     const previousCount = state?.G?.seatCount
+    const botKey = JSON.stringify(G?.bots ?? {})
     state = value
-    if (G && G.seatCount !== previousCount) void refreshSeats()
+    if (value?.isConnected) {
+      sawSocket = true
+      dropped = false
+      if (dropTimer) window.clearTimeout(dropTimer)
+      dropTimer = null
+    } else if (sawSocket && !watching) {
+      if (dropTimer) window.clearTimeout(dropTimer)
+      dropTimer = window.setTimeout(() => {
+        dropped = true
+      }, 1200)
+    }
+    if (G && (G.seatCount !== previousCount || botKey !== seenBots)) {
+      seenBots = botKey
+      void refreshSeats()
+    }
   })
     : () => {}
 
@@ -299,6 +328,7 @@
     unsubscribe()
     if (poll) window.clearInterval(poll)
     if (nameTimer) window.clearTimeout(nameTimer)
+    if (dropTimer) window.clearTimeout(dropTimer)
     ;[...timers, ...trickTimers].forEach((id) => window.clearTimeout(id))
   })
 
@@ -403,6 +433,36 @@
       seats = all.filter((seat) => seat.id < count)
     } catch {
       // The socket may still be connected during a short lobby API interruption.
+    }
+  }
+
+  function botLevelLabel(id: string | undefined): string {
+    return config.bots.levels.find((level) => level.id === id)?.label ?? 'Bot'
+  }
+
+  async function seatAsBot(seatID: string, difficulty: string) {
+    botError = ''
+    botBusy = seatID
+    try {
+      await seatBot(session, seatID, difficulty)
+      await refreshSeats()
+    } catch (reason) {
+      botError = reason instanceof Error ? reason.message : 'Could not seat that bot.'
+    } finally {
+      botBusy = ''
+    }
+  }
+
+  async function freeBot(seatID: string) {
+    botError = ''
+    botBusy = seatID
+    try {
+      await clearBot(session, seatID)
+      await refreshSeats()
+    } catch (reason) {
+      botError = reason instanceof Error ? reason.message : 'Could not free that seat.'
+    } finally {
+      botBusy = ''
     }
   }
 
@@ -672,9 +732,13 @@
             <p>You are watching. Empty seats stay empty.</p>
             <div class="seat-list">
               {#each snapshot.seats as seat}
-                <div class:filled={!!seat.name}>
+                {@const botLevel = snapshot.G.bots?.[String(seat.id)]}
+                <div class:filled={!!seat.name} class:bot={botLevel}>
                   <span>{seat.name ? seat.name.slice(0, 1).toUpperCase() : seat.id + 1}</span>
-                  <p>{seat.name ?? 'Empty seat'}</p>
+                  <div class="seat-meta">
+                    <p>{seat.name ?? 'Empty seat'}</p>
+                    {#if botLevel}<small>Bot · {botLevelLabel(botLevel)}</small>{/if}
+                  </div>
                 </div>
               {/each}
             </div>
@@ -685,6 +749,7 @@
               <div class="opponent" class:turn={G.turnPlayer === playerID && !pendingPickup}>
                 <div class="avatar">{nameFor(playerID).slice(0, 1).toUpperCase()}</div>
                 <strong class="player-name">{nameFor(playerID)}</strong>
+                {#if G.bots?.[playerID]}<small class="bot-label">Bot · {botLevelLabel(G.bots[playerID])}</small>{/if}
                 <span class="count">▰ {G.handCounts[playerID]}</span>
               </div>
             {/each}
@@ -817,25 +882,78 @@
       <section class="waiting-card">
         <button type="button" class="pulse secret-tap" on:click={() => peekGate?.tap()} aria-hidden="true">♠</button>
         <h1>Players are joining</h1>
-        <p>Share the game code or link. Start once 3 people have sat. Empty seats stay out of the deal.</p>
+        <p>Share the game code or link. Start once 3 seats are filled. Bots count, and empty seats stay out of the deal.</p>
         {#if G.takeRequiresPermission}
           <p class="house-rule">House rule: takes need permission</p>
         {/if}
+        {#if dropped}
+          <p class="error">Disconnected. If this seat was given to a bot, go back to the lobby.</p>
+          <button class="secondary" type="button" on:click={onLeave}>Back to lobby</button>
+        {/if}
+        {#if session.playerID === G.hostID}
+          <label class="bot-level">
+            <span>Level for new bots</span>
+            <select bind:value={nextBotLevel}>
+              {#each config.bots.levels as level}
+                <option value={level.id}>{level.label}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
         <div class="seat-list">
           {#each seats as seat}
-            <div class:filled={seat.name}>
+            {@const seatID = String(seat.id)}
+            {@const botLevel = G.bots?.[seatID]}
+            {@const hostSeat = seatID === G.hostID}
+            <div class:filled={seat.name} class:bot={botLevel}>
               <span>{seat.name ? seat.name.slice(0, 1).toUpperCase() : seat.id + 1}</span>
-              <p>{seat.name ?? 'Empty seat'}</p>
-              {#if String(seat.id) === '0'}<small>Host</small>{/if}
+              <div class="seat-meta">
+                <p>{seat.name ?? 'Empty seat'}</p>
+                {#if botLevel}<small>Bot · {botLevelLabel(botLevel)}</small>
+                {:else if hostSeat}<small>Host</small>{/if}
+              </div>
+              {#if session.playerID === G.hostID && !hostSeat}
+                <div class="seat-actions">
+                  {#if botLevel}
+                    <select
+                      aria-label={`Difficulty for ${seat.name ?? `seat ${seat.id + 1}`}`}
+                      value={botLevel}
+                      disabled={botBusy === seatID}
+                      on:change={(event) => seatAsBot(seatID, event.currentTarget.value)}
+                    >
+                      {#each config.bots.levels as level}
+                        <option value={level.id}>{level.label}</option>
+                      {/each}
+                    </select>
+                    <button class="secondary" type="button" disabled={botBusy === seatID} on:click={() => freeBot(seatID)}>
+                      Free seat
+                    </button>
+                  {:else if seat.name}
+                    <button class="secondary" type="button" disabled={botBusy === seatID} on:click={() => seatAsBot(seatID, nextBotLevel)}>
+                      Replace with bot
+                    </button>
+                  {:else}
+                    <button class="secondary" type="button" disabled={botBusy === seatID} on:click={() => seatAsBot(seatID, nextBotLevel)}>
+                      Seat a bot
+                    </button>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/each}
         </div>
+        {#if botError}<p class="error" role="alert">{botError}</p>{/if}
         {#if session.playerID === G.hostID}
+          {@const named = seats.filter((seat) => seat.name)}
+          {@const ready = named.filter((seat) => G.seated?.[String(seat.id)]).length}
           <button
             class="primary"
-            disabled={seats.filter((seat) => seat.name).length < config.game.minPlayers}
+            disabled={ready < config.game.minPlayers}
             on:click={live!.moves.startGame}
           >Start game</button>
+          {#if named.length >= config.game.minPlayers && ready < named.length}
+            <p class="join-hint">Waiting for every seat to sit down.</p>
+          {/if}
           {#if (G.seatCount ?? config.game.maxPlayers) < config.game.maxPlayers}
             <button class="secondary" type="button" on:click={() => live!.moves.addSeat()}>Add a seat</button>
           {/if}
@@ -865,6 +983,7 @@
             <span class="name-tip" role="tooltip">{nameFor(playerID)}</span>
             <div class="avatar">{nameFor(playerID).slice(0, 1).toUpperCase()}</div>
             <strong class="player-name">{nameFor(playerID)}</strong>
+            {#if G.bots?.[playerID]}<small class="bot-label">Bot · {botLevelLabel(G.bots[playerID])}</small>{/if}
             <span class="count">
               ▰ {G.handCounts[playerID]}
               {#if landedFor === playerID && receivedIDs.size}

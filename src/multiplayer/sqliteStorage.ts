@@ -43,6 +43,11 @@ export class SqliteStorage extends Sync {
     return this.appStore
   }
 
+  /** Shared file for app tables, including bot seat credentials. */
+  database(): Database.Database {
+    return this.requireDb()
+  }
+
   private requireDb(): Database.Database {
     if (!this.db) throw new Error('SqliteStorage.connect() must be called first')
     return this.db

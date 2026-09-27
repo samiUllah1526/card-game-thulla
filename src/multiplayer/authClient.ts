@@ -162,3 +162,36 @@ export async function fetchMatchLeaderboard(session: Session): Promise<MatchLead
     { headers: seatHeaders(session) },
   )
 }
+
+export async function fillBots(
+  session: Session,
+  seats: string[],
+  difficulty: string,
+): Promise<void> {
+  await json(`/api/matches/${encodeURIComponent(session.matchID)}/bots/fill`, {
+    method: 'POST',
+    headers: seatHeaders(session),
+    body: JSON.stringify({ seats, difficulty }),
+  })
+}
+
+export async function seatBot(session: Session, seat: string, difficulty: string): Promise<void> {
+  await json(
+    `/api/matches/${encodeURIComponent(session.matchID)}/bots/${encodeURIComponent(seat)}`,
+    {
+      method: 'PUT',
+      headers: seatHeaders(session),
+      body: JSON.stringify({ difficulty }),
+    },
+  )
+}
+
+export async function clearBot(session: Session, seat: string): Promise<void> {
+  await json(
+    `/api/matches/${encodeURIComponent(session.matchID)}/bots/${encodeURIComponent(seat)}`,
+    {
+      method: 'DELETE',
+      headers: seatHeaders(session),
+    },
+  )
+}

@@ -653,12 +653,24 @@ button.pulse {
 }
 .waiting-card > p { max-width: 340px; color: var(--muted); font-size: 13px; }
 .pulse { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 18px; color: white; background: var(--green); font-size: 30px; box-shadow: 0 0 0 8px #e5eed2; }
-.seat-list { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 8px 0; }
-.seat-list > div { min-width: 0; display: grid; justify-items: center; gap: 4px; color: #9aa49d; }
+.seat-list { width: 100%; display: grid; grid-template-columns: 1fr; gap: 8px; margin: 8px 0; }
+.seat-list > div {
+  min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center;
+  gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; color: #9aa49d; text-align: left;
+}
+.seat-list > div:has(.seat-actions) { grid-template-columns: auto minmax(0, 1fr) auto; }
 .seat-list > div > span { display: grid; place-items: center; width: 40px; height: 40px; border: 1px dashed #bfc8bf; border-radius: 50%; background: #f4f5ee; }
 .seat-list .filled > span { border-style: solid; color: white; background: var(--green); font-weight: 900; }
-.seat-list p { width: 100%; overflow: hidden; color: inherit; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.seat-list small { color: var(--gold); font-size: 8px; font-weight: 900; }
+.seat-list .bot > span { background: #315c49; }
+.seat-meta { min-width: 0; display: grid; gap: 2px; }
+.seat-list p { width: 100%; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.seat-list small { color: var(--gold); font-size: 10px; font-weight: 900; }
+.seat-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.seat-actions .secondary, .seat-actions select, .bot-level select {
+  width: auto; min-height: 34px; padding: 0 10px; border-radius: 10px; font-size: 12px; font-weight: 750;
+}
+.bot-level { width: 100%; text-align: left; }
+.bot-label { color: var(--gold); font-size: 8px; font-weight: 900; letter-spacing: .04em; }
 .waiting-pill { display: grid; place-items: center; color: var(--green); background: #edf3dc; font-size: 13px; }
 
 .opponents {

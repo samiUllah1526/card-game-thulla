@@ -21,7 +21,7 @@ export type GameEvent =
   | { id: number; type: 'firstLead'; player: string }
   | { id: number; type: 'firstTrickWaste'; leader: string }
   | { id: number; type: 'trickWon'; winner: string }
-  | { id: number; type: 'thulla'; giver: string; receiver: string; count: number }
+  | { id: number; type: 'thulla'; giver: string; receiver: string; count: number; suit: Suit }
   | { id: number; type: 'gotAway'; player: string }
   | { id: number; type: 'took'; taker: string; victim: string; count: number }
   | { id: number; type: 'takeAsked'; from: string; to: string }
@@ -107,6 +107,9 @@ export interface DealResult {
   at: number
 }
 
+/** How hard a seated bot plays. Public; credentials never live on game state. */
+export type BotDifficulty = 'rookie' | 'shark' | 'mastermind'
+
 export interface BhabhiState {
   hands: Record<string, Card[]>
   handCounts: Record<string, number>
@@ -134,6 +137,10 @@ export interface BhabhiState {
   seated?: Record<string, boolean>
   /** Seats dealt at Start. Play again uses this list. */
   dealtSeats?: string[]
+  /** Seat id to difficulty, while that seat is played by a bot. */
+  bots?: Record<string, BotDifficulty>
+  /** Suits a seat has shown it cannot follow, this deal. Public. */
+  shownVoids?: Record<string, Suit[]>
   phase: 'waiting' | 'preTrick' | 'follow' | 'finished'
   events: GameEvent[]
   shuffleReport: ShuffleReport
