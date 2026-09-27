@@ -49,6 +49,14 @@ export const APP_SCHEMA = `
     closed_at INTEGER,
     departed TEXT NOT NULL DEFAULT '[]'
   );
+
+  CREATE TABLE IF NOT EXISTS bot_seats (
+    match_id TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    difficulty TEXT NOT NULL,
+    credentials TEXT NOT NULL,
+    PRIMARY KEY (match_id, player_id)
+  );
 `
 
 interface SchemaDb {

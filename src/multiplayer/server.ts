@@ -6,6 +6,10 @@ import { config } from '../config'
 import { BhabhiThulla } from '../games/bhabhi-thulla/game'
 import { setPeekPasswordResolver } from '../games/bhabhi-thulla/peek'
 import { peekPassword } from '../games/bhabhi-thulla/peekEnv'
+import { listBotActions } from '../games/bhabhi-thulla/botActions'
+import { BotService } from '../bots/service'
+import { BotSeatStore } from '../bots/store'
+import { createLobbyTransport } from '../bots/transport'
 import { createAppRouter } from './appApi'
 import { loadEnv } from './loadEnv'
 import { createMatchStore, describeMatchStore } from './matchStore'
@@ -28,6 +32,15 @@ const server = Server({
 })
 
 const appStore = db instanceof SqliteStorage ? db.getAppStore() : null
+const bots =
+  appStore && db instanceof SqliteStorage
+    ? new BotService({
+        seats: new BotSeatStore(db.database()),
+        tables: appStore,
+        transport: createLobbyTransport(`http://127.0.0.1:${port}`),
+        listActions: listBotActions,
+      })
+    : null
 if (appStore) {
   server.app.middleware.unshift(async (ctx, next) => {
     if (ctx.method !== 'POST') {
@@ -86,9 +99,14 @@ function playerIDFromBody(raw: Buffer): number | undefined {
     return undefined
   }
 }
-server.app.use(createAppRouter(appStore).routes())
+server.app.use(createAppRouter(appStore, bots).routes())
 
 server.run(port, () => {
   console.log(`${config.game.title} server listening on http://localhost:${port}`)
   console.log(`Match store: ${describeMatchStore()}`)
+  if (bots) {
+    void bots.restore().catch((error: unknown) => {
+      console.error('Could not restore bot seats', error)
+    })
+  }
 })

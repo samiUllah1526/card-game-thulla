@@ -303,6 +303,35 @@ describe('flexible seats', () => {
     expect(G.seated?.['3']).toBeUndefined()
   })
 
+  it('keeps bot seats across the deal and clears voids on the rematch', () => {
+    const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 4 } })
+    G.bots = { '1': 'mastermind', '2': 'rookie' }
+    for (const id of ['0', '1', '2']) callMove('markSeated', G, id)
+    expect(callMove('startGame', G, '0')).not.toBe(INVALID_MOVE)
+    expect(G.bots).toEqual({ '1': 'mastermind', '2': 'rookie' })
+    G.shownVoids = { '1': ['H'] }
+    G.phase = 'finished'
+    G.turnPlayer = '0'
+    expect(callPlayAgain(G, '0', 8)).not.toBe(INVALID_MOVE)
+    expect(G.bots).toEqual({ '1': 'mastermind', '2': 'rookie' })
+    expect(G.shownVoids).toEqual({})
+  })
+
+  it('lets a waiting bot publish its difficulty and blocks the host seat', () => {
+    const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 4 } })
+    const move = BhabhiThulla.moves?.noteBot
+    if (!move || typeof move === 'function') throw new Error('noteBot should be a long-form move')
+    expect(move.move({ G, playerID: '0' } as never, 'rookie')).toBe(INVALID_MOVE)
+    expect(move.move({ G, playerID: '1' } as never, 'nope')).toBe(INVALID_MOVE)
+    expect(move.move({ G, playerID: '1' } as never, 'mastermind')).not.toBe(INVALID_MOVE)
+    expect(G.bots?.['1']).toBe('mastermind')
+    expect(move.move({ G, playerID: '1' } as never, null)).not.toBe(INVALID_MOVE)
+    expect(G.bots?.['1']).toBeUndefined()
+    for (const id of ['0', '1', '2']) callMove('markSeated', G, id)
+    expect(callMove('startGame', G, '0')).not.toBe(INVALID_MOVE)
+    expect(move.move({ G, playerID: '1' } as never, 'rookie')).toBe(INVALID_MOVE)
+  })
+
   it('does not deal an empty seat again on play again', () => {
     const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 6 } })
     for (const id of ['0', '1', '2', '3']) callMove('markSeated', G, id)

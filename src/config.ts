@@ -165,6 +165,27 @@ export const config = {
     secretClicks: 3,
     clickWindowMs: 2000,
   },
+
+  /**
+   * Server-owned bot seats. A new difficulty is a policy file plus a level here.
+   * Think delays are the pause before a bot acts, on top of trick and pickup timing.
+   */
+  bots: {
+    levels: [
+      { id: 'rookie' as const, label: 'Rookie', hint: 'Plays whatever comes to hand.' },
+      { id: 'shark' as const, label: 'Shark', hint: 'Sheds smart and plays to win.' },
+      { id: 'mastermind' as const, label: 'Mastermind', hint: 'Reads the table, counts the cards.' },
+    ],
+    names: ['Rafi', 'Meera', 'Kabir', 'Anika', 'Dev', 'Sana', 'Imran'],
+    thinkMs: {
+      rookie: [400, 900],
+      shark: [700, 1400],
+      mastermind: [900, 1800],
+    },
+    /** How long to wait for a bot's seat move to land in the match store. */
+    ackMs: 2000,
+    pollMs: 40,
+  },
 } as const
 
 export type AppConfig = typeof config
