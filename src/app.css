@@ -400,9 +400,7 @@ input::placeholder { color: #96a098; }
   background: white; color: var(--muted); font-weight: 800;
 }
 .auth-tabs button.active { color: var(--green); border-color: var(--green); background: #edf3dc; }
-.google-signin-host {
-  position: fixed; left: -10000px; top: 0; width: 180px; height: 44px; overflow: hidden;
-}
+.google-signin { display: flex; justify-content: center; min-height: 40px; }
 .auth-form { display: grid; gap: 12px; }
 .auth-hint { margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
 .auth-signed-in { display: grid; gap: 10px; }

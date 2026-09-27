@@ -45,8 +45,6 @@
   let authLoading = false
   let googleClientId: string | null = null
   let providersRequested = false
-  let googleHost: HTMLElement | null = null
-  let googleReady = false
 
   $: selectedAlgo = algorithms.find((entry) => entry.id === shuffleAlgorithm) ?? algorithms[0]
   $: if (user) playerName = user.displayName
@@ -177,15 +175,8 @@
     }
   }
 
-  function openGoogleChooser() {
-    const target = googleHost?.querySelector('[role="button"]')
-    if (target instanceof HTMLElement) target.click()
-  }
-
   function mountGoogleButton(node: HTMLElement, clientId: string) {
     let cancelled = false
-    googleHost = node
-    googleReady = false
     void loadGsiScript()
       .then(() => {
         if (cancelled) return
@@ -198,16 +189,16 @@
             if (response.credential) void signInWithGoogle(response.credential)
           },
         })
-        // Medium and under 200px stays "Continue with Google". A wider button
-        // swaps in the browser's Gmail before anyone clicks.
+        // Medium stays "Continue with Google". Large swaps in the browser's Gmail.
+        const width = Math.max(240, Math.min(400, Math.floor(node.clientWidth || 320)))
         identity.renderButton(node, {
           type: 'standard',
           theme: 'outline',
           size: 'medium',
           text: 'continue_with',
-          width: 180,
+          width,
+          logo_alignment: 'left',
         })
-        googleReady = true
       })
       .catch((reason: unknown) => {
         authError = reason instanceof Error ? reason.message : 'Could not load Google sign-in.'
@@ -215,8 +206,6 @@
     return {
       destroy() {
         cancelled = true
-        if (googleHost === node) googleHost = null
-        googleReady = false
         node.replaceChildren()
       },
     }
@@ -411,13 +400,7 @@
         </div>
       {:else}
         {#if googleClientId}
-          <button
-            class="secondary"
-            type="button"
-            on:click={openGoogleChooser}
-            disabled={authLoading || !googleReady}
-          >Continue with Google</button>
-          <div class="google-signin-host" aria-hidden="true" use:mountGoogleButton={googleClientId}></div>
+          <div class="google-signin" use:mountGoogleButton={googleClientId}></div>
         {/if}
         <div class="auth-tabs" role="tablist">
           <button
