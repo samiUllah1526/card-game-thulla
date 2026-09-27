@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import Database from 'better-sqlite3'
 import { AppError } from './appStore'
+import { applyAppSchema } from './appSchema'
 import { SqliteStorage } from './sqliteStorage'
 import type { Server, State } from 'boardgame.io'
 
@@ -82,5 +84,125 @@ describe('AppStore auth, chat, and deals', () => {
     expect(app.listChat('m1').map((row) => row.text)).toEqual(['hello', 'hi'])
     expect(app.listChat('m2').map((row) => row.text)).toEqual(['other table'])
     expect(() => app.requireSeat('m1', '0', 'nope')).toThrow(/not seated/i)
+  })
+
+  it('soft-deletes a chat row and hides it from the table', () => {
+    const app = open()
+    app.appendChat({ id: 'c1', matchID: 'm1', senderSeat: '0', text: 'hello', at: 10 })
+    app.appendChat({ id: 'c2', matchID: 'm1', senderSeat: '1', text: 'hi', at: 20 })
+
+    app.softDeleteChat('m1', 'c1', '0')
+
+    expect(app.listChat('m1').map((row) => row.text)).toEqual(['hi'])
+    expect(app.chatRow('c1')).toMatchObject({ text: 'hello', deletedAt: expect.any(Number) })
+    expect(() => app.softDeleteChat('m1', 'c2', '0')).toThrow(AppError)
+    expect(() => app.softDeleteChat('m1', 'c2', '0')).toThrow(/own message/i)
+    expect(app.chatRow('c2')?.deletedAt).toBeNull()
+  })
+
+  it('shows a late seat only the chat sent after they sat', () => {
+    const app = open()
+    app.appendChat({ id: 'early', matchID: 'm1', senderSeat: '0', text: 'before you sat', at: 10 })
+    app.noteSeat('m1', '1', null, 30)
+    app.appendChat({ id: 'late', matchID: 'm1', senderSeat: '0', text: 'welcome', at: 40 })
+
+    expect(app.chatView('m1', '1')).toMatchObject({
+      open: true,
+      messages: [expect.objectContaining({ text: 'welcome' })],
+    })
+    expect(app.chatView('m1', '0').messages.map((row) => row.text)).toEqual([
+      'before you sat',
+      'welcome',
+    ])
+  })
+
+  it('closes chat when a deal finishes and hides it again after play again', () => {
+    dir = mkdtempSync(join(tmpdir(), 'thulla-app-'))
+    const storage = new SqliteStorage(join(dir, 'test.sqlite'))
+    storage.connect()
+    storage.createMatch('m1', { initialState: fakeState(), metadata: fakeMeta() })
+    const app = storage.getAppStore()
+
+    app.appendChat({ id: 'old', matchID: 'm1', senderSeat: '0', text: 'old deal', at: 10 })
+    storage.setState('m1', fakeState({ phase: 'finished', started: true, hostID: '0', left: [] }))
+
+    expect(app.chatView('m1', '0')).toMatchObject({ messages: [], open: false })
+    expect(() => app.appendChat({ matchID: 'm1', senderSeat: '0', text: 'too late' })).toThrow(
+      /closed/i,
+    )
+
+    storage.setState('m1', fakeState({ phase: 'preTrick', started: true, hostID: '0', left: [] }))
+    const view = app.chatView('m1', '0')
+    expect(view.open).toBe(true)
+    expect(view.messages).toEqual([])
+    expect(view.visibleAfter).toBeGreaterThan(10)
+    expect(app.chatRow('old')).toMatchObject({ text: 'old deal', deletedAt: null })
+  })
+
+  it('lets a signed-in player reclaim their seat, and blocks everyone after close', () => {
+    dir = mkdtempSync(join(tmpdir(), 'thulla-app-'))
+    const storage = new SqliteStorage(join(dir, 'test.sqlite'))
+    storage.connect()
+    storage.createMatch('m1', {
+      initialState: fakeState({ phase: 'preTrick', started: true, hostID: '0', left: [] }),
+      metadata: fakeMeta(),
+    })
+    const app = storage.getAppStore()
+    const owner = app.signup('bea@example.com', 'secret123', 'Bea')
+    const stranger = app.signup('cam@example.com', 'secret123', 'Cam')
+    app.noteSeat('m1', '1', null, 5)
+    app.noteSeat('m1', '1', owner.user.id, 999)
+
+    expect(app.joinBlock('m1')).toBe('started')
+    expect(app.reclaimSeat('m1', owner.user.id)).toEqual({
+      playerID: '1',
+      credentials: 'cred-1',
+      playerName: 'Bea',
+    })
+    expect(app.chatView('m1', '1').visibleAfter).toBe(5)
+    expect(() => app.reclaimSeat('m1', stranger.user.id)).toThrow(/not seated/i)
+
+    storage.setState('m1', fakeState({ phase: 'finished', started: true, hostID: '0', left: ['2'] }))
+    expect(app.departResult('m1', '0')).toEqual({ closed: false })
+    expect(app.departResult('m1', '1')).toEqual({ closed: true })
+    expect(storage.fetch('m1', { state: true }).state).toBeUndefined()
+    expect(app.joinBlock('m1')).toBe('closed')
+    expect(() => app.chatView('m1', '1')).toThrow(/ended/i)
+    expect(() => app.reclaimSeat('m1', owner.user.id)).toThrow(/ended/i)
+    expect(() => app.closeMatch('m1', '1')).not.toThrow()
+  })
+
+  it('lets only the host end a finished table', () => {
+    dir = mkdtempSync(join(tmpdir(), 'thulla-app-'))
+    const storage = new SqliteStorage(join(dir, 'test.sqlite'))
+    storage.connect()
+    storage.createMatch('m1', {
+      initialState: fakeState({ phase: 'finished', started: true, hostID: '0', left: [] }),
+      metadata: fakeMeta(),
+    })
+    const app = storage.getAppStore()
+    expect(() => app.closeMatch('m1', '1')).toThrow(/host/i)
+    app.closeMatch('m1', '0')
+    expect(app.isClosed('m1')).toBe(true)
+    expect(app.matchGate('m1')).toEqual({ closed: true, started: true })
+  })
+
+  it('adds deleted_at when an older chat table has no such column', () => {
+    dir = mkdtempSync(join(tmpdir(), 'thulla-app-'))
+    const db = new Database(join(dir, 'old.sqlite'))
+    db.exec(`
+      CREATE TABLE chat_messages (
+        id TEXT PRIMARY KEY,
+        match_id TEXT NOT NULL,
+        sender_seat TEXT NOT NULL,
+        user_id INTEGER,
+        text TEXT NOT NULL,
+        at INTEGER NOT NULL
+      );
+    `)
+    applyAppSchema(db)
+    const columns = db.prepare(`PRAGMA table_info(chat_messages)`).all() as Array<{ name: string }>
+    expect(columns.map((column) => column.name)).toContain('deleted_at')
+    db.close()
   })
 })

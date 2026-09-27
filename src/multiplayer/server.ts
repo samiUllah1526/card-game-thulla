@@ -26,6 +26,28 @@ const server = Server({
 })
 
 const appStore = db instanceof SqliteStorage ? db.getAppStore() : null
+if (appStore) {
+  server.app.middleware.unshift(async (ctx, next) => {
+    if (ctx.method !== 'POST') {
+      await next()
+      return
+    }
+    const match = ctx.path.match(/^\/games\/[^/]+\/([^/]+)\/join$/)
+    if (!match) {
+      await next()
+      return
+    }
+    const block = appStore.joinBlock(decodeURIComponent(match[1]))
+    if (!block) {
+      await next()
+      return
+    }
+    ctx.status = block === 'closed' ? 410 : 403
+    ctx.body = {
+      error: block === 'closed' ? 'This table has ended.' : 'This game has already started.',
+    }
+  })
+}
 server.app.use(createAppRouter(appStore).routes())
 
 server.run(port, () => {

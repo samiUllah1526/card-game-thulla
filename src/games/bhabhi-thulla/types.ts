@@ -27,6 +27,7 @@ export type GameEvent =
   | { id: number; type: 'takeAsked'; from: string; to: string }
   | { id: number; type: 'takeAccepted'; from: string; to: string; count: number }
   | { id: number; type: 'takeRejected'; from: string; to: string }
+  | { id: number; type: 'left'; player: string }
   | { id: number; type: 'bhabhi'; player: string }
 
 /** Leader asked to take the next player's hand; waiting for Accept/Reject. */
@@ -117,6 +118,8 @@ export interface BhabhiState {
   lastTrick?: ResolvedTrick
   active: string[]
   gotAway: string[]
+  /** Seats that forfeited. Their cards were discarded and they are not dealt again. */
+  left?: string[]
   leader: string
   turnPlayer: string
   firstLeader: string

@@ -379,6 +379,9 @@ input::placeholder { color: #96a098; }
   display: grid; gap: 15px; margin-top: 18px; padding: 18px; border: 1px solid var(--line);
   border-radius: 20px; background: rgba(255, 253, 246, .9); box-shadow: 0 10px 30px rgba(30, 55, 42, .06);
 }
+.ended-panel { margin: 48px auto; max-width: 420px; }
+.ended-panel h2 { margin: 0; font-size: 28px; }
+.ended-panel p { margin: 0; color: var(--muted); }
 .lobby-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 18px; }
 .lobby-tabs button {
   min-height: 44px; border: 1px solid var(--line); border-radius: 12px;
@@ -511,17 +514,18 @@ input:disabled { background: #f3f6ef; color: var(--muted); }
 
 /* ---- Table chat -------------------------------------------------------- */
 .table-chat {
-  display: flex; flex-direction: column; flex-shrink: 0;
+  display: flex; flex-direction: column; flex-shrink: 0; min-height: 0; overflow: hidden;
   background: rgba(255, 253, 246, .96); border-top: 1px solid rgba(34, 72, 49, .12);
 }
-.table-chat.lobby { min-height: 220px; max-height: 38vh; }
-.table-chat.game:not(.open):not(.wide) {
+.table-chat:not(.open):not(.wide) {
   position: absolute; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom));
-  z-index: 8; border: 0; background: transparent; min-height: 0;
+  z-index: 8; width: auto; height: auto; border: 0; background: transparent;
+  min-height: 0; overflow: visible;
 }
-.table-chat.game.open:not(.wide) {
+.table-chat.open:not(.wide) {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 12;
-  height: 45vh; max-height: 420px; border-top: 1px solid rgba(34, 72, 49, .14);
+  height: 45vh; max-height: 420px; overflow: hidden;
+  border-top: 1px solid rgba(34, 72, 49, .14);
   border-radius: 22px 22px 0 0; box-shadow: 0 -12px 40px rgba(24, 60, 38, .18);
 }
 .chat-chip {
@@ -535,7 +539,7 @@ input:disabled { background: #f3f6ef; color: var(--muted); }
   border-radius: 999px; color: white; background: #c04545; font-size: 11px; font-weight: 900;
 }
 .chat-panel {
-  display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
+  display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden;
 }
 .chat-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -557,6 +561,10 @@ input:disabled { background: #f3f6ef; color: var(--muted); }
 }
 .chat-line.mine .chat-meta { justify-content: flex-end; }
 .chat-name { color: var(--green-dark); }
+.chat-delete {
+  padding: 0; border: 0; background: transparent; color: var(--muted);
+  font-size: 10px; font-weight: 800;
+}
 .chat-text {
   margin: 0; padding: 8px 11px; border-radius: 14px; color: var(--ink);
   background: #e9f0d8; font-size: 13px; font-weight: 600; line-height: 1.35;
@@ -664,7 +672,7 @@ button.pulse {
 .opponent span { font-size: 9px; }
 .opponent .count { position: relative; display: inline-flex; gap: 4px; }
 .opponent .tag { position: absolute; top: 0; right: 0; padding: 2px 4px; border-radius: 5px; color: #674e0f; background: var(--lime); font-size: 7px; font-weight: 900; }
-.opponent.escaped { opacity: .5; }
+.opponent.escaped, .opponent.left { opacity: .5; }
 
 /* Thulla giver / receiver highlights on the chips */
 .opponent.giver { border-color: #e2a3a5; background: rgba(255, 236, 236, .9); }
@@ -965,10 +973,7 @@ button.pulse {
     box-shadow: 0 24px 80px rgba(24,60,38,.16);
   }
   .table-shell.waiting .table-page {
-    min-height: calc(100svh - 44px); border-radius: 28px 28px 0 0;
-  }
-  .table-shell.waiting .table-chat {
-    border-radius: 0 0 28px 28px; box-shadow: 0 24px 80px rgba(24,60,38,.16);
+    min-height: calc(100svh - 44px); border-radius: 28px;
   }
   .lobby { padding-top: 38px; }
 }
@@ -991,16 +996,21 @@ button.pulse {
   .table-chat,
   .table-chat.lobby,
   .table-chat.game,
+  .table-chat.open,
+  .table-chat.wide,
   .table-chat.game.open,
-  .table-chat.game:not(.open):not(.wide) {
+  .table-chat:not(.open):not(.wide) {
     position: relative; left: auto; right: auto; bottom: auto; z-index: 1;
-    width: 300px; flex: 0 0 300px; min-height: 0; max-height: none; height: auto; align-self: stretch;
+    width: 300px; flex: 0 0 300px; height: 100%; min-height: 0; max-height: 100%;
+    overflow: hidden; align-self: stretch;
     border-top: 0; border-left: 1px solid rgba(34, 72, 49, .12); border-radius: 0 28px 28px 0;
     box-shadow: none; background: #f7f8ef;
   }
-  .table-shell.waiting .table-chat { min-height: calc(100svh - 44px); }
+  .table-shell.waiting .table-chat {
+    height: calc(100svh - 44px); max-height: calc(100svh - 44px);
+  }
   .table-chat .chat-chip { display: none; }
-  .table-chat .chat-panel { height: 100%; min-height: 0; }
+  .table-chat .chat-panel { height: 100%; min-height: 0; overflow: hidden; }
   .table-chat .chat-close { display: none; }
   .chat-compose { padding-bottom: 12px; }
 }

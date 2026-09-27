@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { config } from '../config'
-import { mergeChatMessages, normalizeChatMessage, sanitizeChatText, type TableChatMessage } from './chat'
+import { chatDeleteId, mergeChatMessages, normalizeChatMessage, sanitizeChatText, type TableChatMessage } from './chat'
 
 describe('sanitizeChatText', () => {
   it('trims and collapses whitespace', () => {
@@ -48,6 +48,13 @@ describe('normalizeChatMessage', () => {
   it('drops invalid entries', () => {
     expect(normalizeChatMessage({ id: 'm3', sender: '0', payload: { text: '   ' } })).toBeNull()
     expect(normalizeChatMessage({ id: '', sender: '0', payload: 'ok' })).toBeNull()
+    expect(normalizeChatMessage({ id: 'sock', sender: '0', payload: { deleteId: 'a' } })).toBeNull()
+  })
+
+  it('reads a delete tombstone', () => {
+    expect(chatDeleteId({ deleteId: 'a' })).toBe('a')
+    expect(chatDeleteId({ text: 'hi' })).toBeNull()
+    expect(chatDeleteId('hi')).toBeNull()
   })
 })
 
@@ -76,5 +83,18 @@ describe('mergeChatMessages', () => {
       at: index,
     }))
     expect(mergeChatMessages([], many, 3).map((m) => m.id)).toEqual(['2', '3', '4'])
+  })
+
+  it('drops a tombstoned id even when a later copy arrives', () => {
+    const cached: TableChatMessage[] = [
+      { id: 'a', sender: '0', text: 'first', at: 10 },
+      { id: 'b', sender: '1', text: 'second', at: 20 },
+    ]
+    const incoming: TableChatMessage[] = [
+      { id: 'a', sender: '0', text: 'first again', at: 10 },
+    ]
+    expect(mergeChatMessages(cached, incoming, 80, ['a'])).toEqual([
+      { id: 'b', sender: '1', text: 'second', at: 20 },
+    ])
   })
 })

@@ -11,11 +11,11 @@ export function createDeck(): Card[] {
   )
 }
 
-export function deal(deck: Card[], playerCount: number): Record<string, Card[]> {
-  const hands: Record<string, Card[]> = Object.fromEntries(
-    Array.from({ length: playerCount }, (_, index) => [String(index), []]),
-  )
-  deck.forEach((card, index) => hands[String(index % playerCount)].push(card))
+export function deal(deck: Card[], playerCount: number, seats?: string[]): Record<string, Card[]> {
+  const ids = seats ?? Array.from({ length: playerCount }, (_, index) => String(index))
+  const hands: Record<string, Card[]> = Object.fromEntries(ids.map((id) => [id, [] as Card[]]))
+  if (ids.length === 0) return hands
+  deck.forEach((card, index) => hands[ids[index % ids.length]].push(card))
   return hands
 }
 
@@ -56,6 +56,87 @@ export function removeEmptyPlayer(state: BhabhiState, playerID: string): void {
   state.active = state.active.filter((id) => id !== playerID)
   state.gotAway.push(playerID)
   addEvent(state, { type: 'gotAway', player: playerID })
+}
+
+function stillHere(state: BhabhiState): string[] {
+  const gone = new Set(state.left ?? [])
+  return Object.keys(state.hands)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map(String)
+    .filter((id) => !gone.has(id))
+}
+
+function nextStillHere(state: BhabhiState, after: string): string | null {
+  const seats = stillHere(state)
+  if (seats.length === 0) return null
+  return seats.find((id) => Number(id) > Number(after)) ?? seats[0]
+}
+
+/**
+ * Forfeit a seat mid-deal. Remaining cards go to the waste pile.
+ * The player is not marked as got away, and stays out of later deals.
+ * Returns whether the leaver was the seat to move, so the caller can end the turn.
+ */
+export function forfeitPlayer(state: BhabhiState, playerID: string): { endTurn: boolean } {
+  const wasTurn = state.turnPlayer === playerID
+  if (!state.left) state.left = []
+  if (state.left.includes(playerID)) return { endTurn: false }
+
+  const hand = state.hands[playerID] ?? []
+  if (hand.length > 0) state.waste.push(...hand)
+  state.hands[playerID] = []
+  state.active = state.active.filter((id) => id !== playerID)
+  state.left.push(playerID)
+  addEvent(state, { type: 'left', player: playerID })
+
+  if (state.lastPickup && !state.lastPickup.dismissed && state.lastPickup.receiver === playerID) {
+    state.lastPickup.dismissed = true
+  }
+  if (state.pendingTake && (state.pendingTake.from === playerID || state.pendingTake.to === playerID)) {
+    state.pendingTake = undefined
+  }
+  if (state.lastTakeReject && !state.lastTakeReject.dismissed && state.lastTakeReject.from === playerID) {
+    state.lastTakeReject.dismissed = true
+  }
+
+  if (state.hostID === playerID) {
+    const nextHost = nextStillHere(state, playerID)
+    if (nextHost) state.hostID = nextHost
+  }
+
+  if (state.active.length === 0) {
+    syncCounts(state)
+    return { endTurn: wasTurn }
+  }
+
+  if (state.phase === 'follow' && state.trick.length > 0) {
+    const played = new Set(state.trick.map((play) => play.playerID))
+    const remaining = state.active.filter((id) => !played.has(id))
+    if (remaining.length === 0) {
+      state.turnPlayer = resolveTrick(state, false)
+    } else if (!remaining.includes(state.turnPlayer)) {
+      state.turnPlayer = nextActive(remaining, playerID)
+    }
+  } else if (state.phase === 'preTrick' || state.phase === 'follow') {
+    if (!state.active.includes(state.leader)) {
+      state.leader = nextActive(state.active, playerID)
+    }
+    if (!state.active.includes(state.turnPlayer)) {
+      state.turnPlayer = state.active.includes(state.leader)
+        ? state.leader
+        : nextActive(state.active, playerID)
+    }
+  }
+
+  syncCounts(state)
+  if (state.phase !== 'finished' && state.phase !== 'waiting' && finishIfNeeded(state)) {
+    state.turnPlayer = state.hostID
+  }
+  if (state.phase === 'finished' && !stillHere(state).includes(state.turnPlayer)) {
+    if (stillHere(state).includes(state.hostID)) state.turnPlayer = state.hostID
+  }
+  return { endTurn: wasTurn }
 }
 
 export function addEvent(state: BhabhiState, event: GameEventInput): void {

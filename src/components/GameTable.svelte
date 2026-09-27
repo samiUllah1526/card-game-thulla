@@ -17,7 +17,7 @@
   } from '../games/bhabhi-thulla/types'
   import type { GameConnection, GameSnapshot } from '../multiplayer/gameClient'
   import { getSeats, joinUrl } from '../multiplayer/lobby'
-  import { fetchMatchLeaderboard } from '../multiplayer/authClient'
+  import { closeMatch, departMatch, fetchMatchGate, fetchMatchLeaderboard } from '../multiplayer/authClient'
   import { tallyLeaderboard, type MatchLeaderboard } from '../multiplayer/leaderboard'
   import { formatLocalDateTime, toUtcIso } from '../lib/time'
   import { legalCards } from '../games/bhabhi-thulla/rules'
@@ -29,6 +29,7 @@
   export let session: Session
   export let connection: GameConnection
   export let onLeave: () => void
+  export let onClosed: () => void = () => {}
 
   const { timing, haptics, roast } = config
 
@@ -240,9 +241,22 @@
     ;[...timers, ...trickTimers].forEach((id) => window.clearTimeout(id))
   })
 
+  async function watchGate() {
+    try {
+      const gate = await fetchMatchGate(session.matchID)
+      if (gate.closed) onClosed()
+    } catch {
+      // A dropped request must not close the table.
+    }
+  }
+
   onMount(() => {
     refreshSeats()
-    poll = window.setInterval(refreshSeats, timing.seatPollMs)
+    void watchGate()
+    poll = window.setInterval(() => {
+      void refreshSeats()
+      void watchGate()
+    }, timing.seatPollMs)
     peekLog('how to peek (open DevTools console for these messages)', {
       steps: [
         '1. Triple-tap waste (header) or ♠ (lobby) within 2s',
@@ -363,6 +377,8 @@
         return `${nameFor(event.to)} let ${nameFor(event.from)} take ${event.count} cards`
       case 'takeRejected':
         return `${nameFor(event.to)} rejected ${nameFor(event.from)}’s take`
+      case 'left':
+        return `${nameFor(event.player)} left — cards discarded`
       case 'bhabhi':
         return `${nameFor(event.player)} is Bhabhi`
     }
@@ -459,7 +475,7 @@
     canAct: boolean,
   ): string {
     if (G.phase === 'finished') return `${nameFor(G.bhabhi!)} is Bhabhi`
-    if (!G.started) return session.playerID === '0' ? 'Start when everyone has joined' : 'Waiting for the host'
+    if (!G.started) return session.playerID === G.hostID ? 'Start when everyone has joined' : 'Waiting for the host'
     if (pendingPickup) {
       return pendingPickup.receiver === session.playerID
         ? `You picked up ${pendingPickup.cards.length} cards — tap Continue`
@@ -481,6 +497,40 @@
       return G.ledSuit ? `Your turn — follow ${suitName(G.ledSuit)}` : 'Your turn'
     }
     return `${nameFor(G.turnPlayer)} is playing`
+  }
+
+  async function leaveResult() {
+    try {
+      const result = await departMatch(session)
+      if (result.closed) onClosed()
+      else onLeave()
+    } catch {
+      onLeave()
+    }
+  }
+
+  async function endTable() {
+    if (!window.confirm('End the table? The link will stop working for everyone.')) return
+    try {
+      await closeMatch(session)
+    } catch {
+      // The table may already be closed.
+    }
+    onClosed()
+  }
+
+  function requestLeave(started: boolean, finished = false) {
+    if (finished) {
+      void leaveResult()
+      return
+    }
+    if (!started) {
+      onLeave()
+      return
+    }
+    if (!window.confirm('Leave the game? Your cards will be discarded.')) return
+    connection.moves.leaveGame()
+    window.setTimeout(onLeave, 50)
   }
 
   function registerChip(node: HTMLElement, playerID: string) {
@@ -521,7 +571,7 @@
   <div class="table-shell" class:waiting={!G.started} class:playing={G.started}>
   <main class="table-page" class:shaking class:finished={G.phase === 'finished'}>
     <header class="table-header">
-      <button class="icon-button" on:click={onLeave} aria-label="Leave table">←</button>
+      <button class="icon-button" on:click={() => requestLeave(G.started, G.phase === 'finished')} aria-label="Leave table">←</button>
       <div>
         <p class="eyebrow">Game code</p>
         <div class="share-actions">
@@ -574,7 +624,7 @@
             </div>
           {/each}
         </div>
-        {#if session.playerID === '0'}
+        {#if session.playerID === G.hostID}
           <button
             class="primary"
             disabled={seats.length < config.game.minPlayers || seats.some((seat) => !seat.name)}
@@ -624,7 +674,7 @@
             {/if}
           </button>
         {/each}
-        {#each G.gotAway.filter((id) => id !== session.playerID) as playerID (playerID)}
+        {#each G.gotAway.filter((id) => id !== session.playerID && !(G.left ?? []).includes(id)) as playerID (playerID)}
           <button
             type="button"
             class="opponent escaped"
@@ -635,6 +685,19 @@
           >
             <span class="name-tip" role="tooltip">{nameFor(playerID)}</span>
             <div class="avatar">✓</div><strong class="player-name">{nameFor(playerID)}</strong><span>Got away</span>
+          </button>
+        {/each}
+        {#each (G.left ?? []).filter((id) => id !== session.playerID) as playerID (playerID)}
+          <button
+            type="button"
+            class="opponent left"
+            class:show-name={openNameFor === playerID}
+            title={nameFor(playerID)}
+            on:click={() => toggleName(playerID)}
+            animate:flip={{ duration: 300 }}
+          >
+            <span class="name-tip" role="tooltip">{nameFor(playerID)}</span>
+            <div class="avatar">←</div><strong class="player-name">{nameFor(playerID)}</strong><span>Left</span>
           </button>
         {/each}
       </section>
@@ -721,7 +784,7 @@
           {#key lastEvent.id}
             <div class="event-banner" class:thulla={lastEvent.type === 'thulla'} class:bhabhi={lastEvent.type === 'bhabhi'} in:fly={{ y: 14, duration: 320, easing: cubicOut }}>
               <span class="event-icon">
-                {#if lastEvent.type === 'thulla'}!{:else if lastEvent.type === 'gotAway'}✓{:else if lastEvent.type === 'bhabhi'}★{:else if lastEvent.type === 'takeRejected'}✕{:else}♠{/if}
+                {#if lastEvent.type === 'thulla'}!{:else if lastEvent.type === 'gotAway'}✓{:else if lastEvent.type === 'left'}←{:else if lastEvent.type === 'bhabhi'}★{:else if lastEvent.type === 'takeRejected'}✕{:else}♠{/if}
               </span>
               {describe(lastEvent)}
             </div>
@@ -765,12 +828,13 @@
               </ul>
             {/if}
             <div class="game-over-actions">
-              {#if session.playerID === '0'}
+              {#if session.playerID === G.hostID}
                 <button class="primary" on:click={connection.moves.playAgain}>Play again</button>
+                <button class="secondary" type="button" on:click={endTable}>End table</button>
               {:else}
                 <div class="waiting-pill">Waiting for the host to play again…</div>
               {/if}
-              <button class="secondary" on:click={onLeave}>Back to lobby</button>
+              <button class="secondary" type="button" on:click={leaveResult}>Back to lobby</button>
             </div>
           </div>
         {:else}
@@ -899,9 +963,11 @@
     <TableChat
       messages={connection.chat}
       sendChat={connection.sendChat}
+      deleteChat={connection.deleteChat}
       me={session.playerID}
       {nameFor}
       mode={G.started ? 'game' : 'lobby'}
+      enabled={G.phase !== 'finished'}
     />
   {/key}
 

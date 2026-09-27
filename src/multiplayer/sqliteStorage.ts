@@ -68,6 +68,7 @@ export class SqliteStorage extends Sync {
 
   setState(matchID: string, state: State, deltalog?: LogEntry[]): void {
     const db = this.requireDb()
+    const previousPhase = this.appStore?.matchPhase(matchID) ?? null
     const row = db.prepare(`SELECT log FROM matches WHERE id = ?`).get(matchID) as
       | { log: string }
       | undefined
@@ -96,6 +97,19 @@ export class SqliteStorage extends Sync {
 
     const history = (state.G as { dealHistory?: DealResult[] } | undefined)?.dealHistory
     this.appStore?.upsertDealResults(matchID, history)
+
+    const next = state.G as { phase?: string; started?: boolean } | undefined
+    if (
+      previousPhase === 'finished' &&
+      next?.phase &&
+      next.phase !== 'finished' &&
+      next.started
+    ) {
+      this.appStore?.openNextDealChat(matchID)
+    }
+    if (next?.phase === 'finished' && previousPhase !== 'finished') {
+      this.appStore?.closeIfAbandoned(matchID)
+    }
   }
 
   setMetadata(matchID: string, metadata: Server.MatchData): void {
@@ -115,6 +129,8 @@ export class SqliteStorage extends Sync {
     matchID: string,
     opts: O,
   ): StorageAPI.FetchResult<O> {
+    if (this.appStore?.isClosed(matchID)) return {} as StorageAPI.FetchResult<O>
+
     const row = this.requireDb()
       .prepare(
         `SELECT state, initial_state, metadata, log FROM matches WHERE id = ?`,

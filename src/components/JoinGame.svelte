@@ -3,6 +3,7 @@
   import { config } from '../config'
   import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
   import type { PublicUser } from '../multiplayer/authTypes'
+  import { fetchMatchGate, reclaimSeat } from '../multiplayer/authClient'
   import {
     firstEmptySeat,
     getSeats,
@@ -15,20 +16,46 @@
   export let user: PublicUser | null = null
   export let onJoined: (session: Session) => void
   export let onBack: () => void
+  export let onEnded: () => void = () => {}
 
   let seats: LobbySeat[] = []
   let guestName = ''
   let loading = false
   let error = ''
   let missing = false
+  let started = false
+  let checked = false
   let poll: number | undefined
 
   $: suggestedGuest = nextGuestName(seats)
   $: emptySeat = firstEmptySeat(seats)
-  $: canJoin = !missing && !!emptySeat && !loading
+  $: canJoin = !missing && !started && !!emptySeat && !loading
 
   async function refresh() {
     try {
+      const gate = await fetchMatchGate(code)
+      if (gate.closed) {
+        onEnded()
+        return
+      }
+      if (gate.started) {
+        started = true
+        seats = []
+        if (user) {
+          try {
+            const session = await reclaimSeat(code)
+            saveSession(session)
+            onJoined(session)
+            return
+          } catch {
+            error = 'This game has already started.'
+          }
+        } else {
+          error = 'This game has already started.'
+        }
+        return
+      }
+      started = false
       seats = await getSeats(code)
       missing = false
       if (error === 'That table was not found.') error = ''
@@ -36,6 +63,8 @@
       seats = []
       missing = true
       error = 'That table was not found.'
+    } finally {
+      checked = true
     }
   }
 
@@ -83,11 +112,19 @@
       <span class="step">+</span>
       <div>
         <h2>Game {code}</h2>
-        <p>Tap Join to sit at the first empty seat. You are not seated yet.</p>
+        <p>
+          {#if !checked}
+            Checking the table…
+          {:else if started}
+            The invitation is closed.
+          {:else}
+            Tap Join to sit at the first empty seat. You are not seated yet.
+          {/if}
+        </p>
       </div>
     </div>
 
-    {#if seats.length}
+    {#if checked && !started && seats.length}
       <div class="seat-list join-seats">
         {#each seats as seat}
           <div class:filled={!!seat.name}>
@@ -98,9 +135,9 @@
       </div>
     {/if}
 
-    {#if user}
+    {#if checked && !started && user}
       <p class="signed-in-line">You’ll join as <strong>{user.displayName}</strong></p>
-    {:else}
+    {:else if checked && !started}
       <label>
         <span>Your name</span>
         <input
@@ -113,9 +150,11 @@
       <p class="join-hint">Leave blank to join as {suggestedGuest}.</p>
     {/if}
 
-    <button class="primary" type="button" on:click={join} disabled={!canJoin}>
-      Join
-    </button>
+    {#if checked && !started}
+      <button class="primary" type="button" on:click={join} disabled={!canJoin}>
+        Join
+      </button>
+    {/if}
     <button class="secondary" type="button" on:click={onBack}>Back</button>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
   </section>

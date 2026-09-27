@@ -71,8 +71,8 @@ export function createAppRouter(store: AppStore | null): Router {
     if (!db) return
     try {
       const matchID = String(ctx.params.id)
-      requireSeat(ctx, db, matchID)
-      ctx.body = { messages: db.listChat(matchID) }
+      const seat = requireSeat(ctx, db, matchID)
+      ctx.body = db.chatView(matchID, seat.playerID)
     } catch (reason) {
       sendError(ctx, reason)
     }
@@ -97,6 +97,78 @@ export function createAppRouter(store: AppStore | null): Router {
         at: typeof body.at === 'number' ? body.at : undefined,
       })
       ctx.body = { message }
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.delete('/api/matches/:id/chat/:messageId', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    try {
+      const matchID = String(ctx.params.id)
+      const seat = requireSeat(ctx, db, matchID)
+      db.softDeleteChat(matchID, String(ctx.params.messageId), seat.playerID)
+      ctx.body = { ok: true }
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.post('/api/matches/:id/seat', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    try {
+      const matchID = String(ctx.params.id)
+      if (db.isClosed(matchID)) throw new AppError('This table has ended.', 410)
+      const seat = requireSeat(ctx, db, matchID)
+      const user = db.userForToken(ctx.cookies.get(COOKIE))
+      db.noteSeat(matchID, seat.playerID, user?.id)
+      ctx.body = { ok: true }
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.get('/api/matches/:id/gate', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    ctx.body = db.matchGate(String(ctx.params.id))
+  })
+
+  router.post('/api/matches/:id/reclaim', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    try {
+      const user = db.userForToken(ctx.cookies.get(COOKIE))
+      if (!user) throw new AppError('Sign in to rejoin this seat.', 401)
+      const seat = db.reclaimSeat(String(ctx.params.id), user.id)
+      ctx.body = { matchID: String(ctx.params.id), ...seat }
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.post('/api/matches/:id/close', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    try {
+      const matchID = String(ctx.params.id)
+      const seat = requireSeat(ctx, db, matchID)
+      db.closeMatch(matchID, seat.playerID)
+      ctx.body = { ok: true }
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.post('/api/matches/:id/depart', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    try {
+      const matchID = String(ctx.params.id)
+      const seat = requireSeat(ctx, db, matchID)
+      ctx.body = db.departResult(matchID, seat.playerID)
     } catch (reason) {
       sendError(ctx, reason)
     }

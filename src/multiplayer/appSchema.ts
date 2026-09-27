@@ -20,7 +20,8 @@ export const APP_SCHEMA = `
     sender_seat TEXT NOT NULL,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     text TEXT NOT NULL,
-    at INTEGER NOT NULL
+    at INTEGER NOT NULL,
+    deleted_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS chat_messages_match_at ON chat_messages (match_id, at);
 
@@ -32,8 +33,32 @@ export const APP_SCHEMA = `
     at INTEGER NOT NULL,
     PRIMARY KEY (match_id, deal)
   );
+
+  CREATE TABLE IF NOT EXISTS seat_members (
+    match_id TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    joined_at INTEGER NOT NULL,
+    PRIMARY KEY (match_id, player_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS match_gates (
+    match_id TEXT PRIMARY KEY,
+    chat_after INTEGER NOT NULL DEFAULT 0,
+    closed_at INTEGER,
+    departed TEXT NOT NULL DEFAULT '[]'
+  );
 `
 
-export function applyAppSchema(db: { exec: (sql: string) => unknown }): void {
+interface SchemaDb {
+  exec(sql: string): unknown
+  prepare(sql: string): { all(): unknown[] }
+}
+
+export function applyAppSchema(db: SchemaDb): void {
   db.exec(APP_SCHEMA)
+  const columns = db.prepare(`PRAGMA table_info(chat_messages)`).all() as Array<{ name: string }>
+  if (!columns.some((column) => column.name === 'deleted_at')) {
+    db.exec(`ALTER TABLE chat_messages ADD COLUMN deleted_at INTEGER`)
+  }
 }
