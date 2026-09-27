@@ -597,6 +597,27 @@ input:disabled { background: #f3f6ef; color: var(--muted); }
   padding: 0; border: 0; color: var(--green); background: transparent;
   font-size: 12px; font-weight: 800;
 }
+.voice-button {
+  position: relative; display: grid; place-items: center; align-self: center;
+  width: 32px; height: 32px; padding: 0; border: 0; border-radius: 9px;
+  background: rgba(255,255,255,.7); color: var(--green);
+}
+.voice-button.off { color: var(--muted); }
+.voice-button svg { width: 18px; height: 18px; }
+.voice-button .speaker { fill: currentColor; }
+.voice-button .wave { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.voice-tip {
+  position: absolute; left: 50%; top: calc(100% + 8px); z-index: 6; transform: translate(-50%, -4px);
+  padding: 5px 10px; border-radius: 8px; color: white; background: var(--ink); font-size: 11px; font-weight: 800;
+  white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .15s, transform .15s;
+  box-shadow: 0 8px 18px rgba(0,0,0,.18);
+}
+.voice-tip::after {
+  content: ""; position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+  border: 5px solid transparent; border-bottom-color: var(--ink);
+}
+.voice-button:hover .voice-tip,
+.voice-button:focus-visible .voice-tip { opacity: 1; transform: translate(-50%, 0); }
 .waste {
   display: grid; grid-template-columns: 1fr 1fr; align-items: center; line-height: 1;
   border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left;
