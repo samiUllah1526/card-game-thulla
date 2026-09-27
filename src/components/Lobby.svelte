@@ -45,6 +45,8 @@
   let authLoading = false
   let googleClientId: string | null = null
   let providersRequested = false
+  let googleHost: HTMLElement | null = null
+  let googleReady = false
 
   $: selectedAlgo = algorithms.find((entry) => entry.id === shuffleAlgorithm) ?? algorithms[0]
   $: if (user) playerName = user.displayName
@@ -175,8 +177,15 @@
     }
   }
 
+  function openGoogleChooser() {
+    const target = googleHost?.querySelector('[role="button"]')
+    if (target instanceof HTMLElement) target.click()
+  }
+
   function mountGoogleButton(node: HTMLElement, clientId: string) {
     let cancelled = false
+    googleHost = node
+    googleReady = false
     void loadGsiScript()
       .then(() => {
         if (cancelled) return
@@ -184,19 +193,21 @@
         if (!identity) throw new Error('Could not load Google sign-in.')
         identity.initialize({
           client_id: clientId,
+          auto_select: false,
           callback: (response) => {
             if (response.credential) void signInWithGoogle(response.credential)
           },
         })
-        const width = Math.max(200, Math.min(400, node.clientWidth || 320))
+        // Medium and under 200px stays "Continue with Google". A wider button
+        // swaps in the browser's Gmail before anyone clicks.
         identity.renderButton(node, {
           type: 'standard',
           theme: 'outline',
-          size: 'large',
+          size: 'medium',
           text: 'continue_with',
-          width,
-          logo_alignment: 'left',
+          width: 180,
         })
+        googleReady = true
       })
       .catch((reason: unknown) => {
         authError = reason instanceof Error ? reason.message : 'Could not load Google sign-in.'
@@ -204,6 +215,8 @@
     return {
       destroy() {
         cancelled = true
+        if (googleHost === node) googleHost = null
+        googleReady = false
         node.replaceChildren()
       },
     }
@@ -225,6 +238,7 @@
   interface GoogleIdentity {
     initialize(config: {
       client_id: string
+      auto_select: boolean
       callback: (response: { credential?: string }) => void
     }): void
     renderButton(parent: HTMLElement, options: Record<string, string | number>): void
@@ -397,7 +411,13 @@
         </div>
       {:else}
         {#if googleClientId}
-          <div class="google-signin" use:mountGoogleButton={googleClientId}></div>
+          <button
+            class="secondary"
+            type="button"
+            on:click={openGoogleChooser}
+            disabled={authLoading || !googleReady}
+          >Continue with Google</button>
+          <div class="google-signin-host" aria-hidden="true" use:mountGoogleButton={googleClientId}></div>
         {/if}
         <div class="auth-tabs" role="tablist">
           <button
