@@ -55,9 +55,9 @@ export function denyLine(name: string, seed: number): string {
 
 export function voiceOn(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) !== 'off'
+    return localStorage.getItem(STORAGE_KEY) === 'on'
   } catch {
-    return true
+    return false
   }
 }
 
