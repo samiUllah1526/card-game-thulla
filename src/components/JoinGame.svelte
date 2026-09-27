@@ -4,6 +4,7 @@
   import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
   import type { PublicUser } from '../multiplayer/authTypes'
   import { fetchMatchGate, reclaimSeat } from '../multiplayer/authClient'
+  import { linkOffer } from '../multiplayer/linkOffer'
   import {
     firstEmptySeat,
     getSeats,
@@ -26,11 +27,19 @@
   let missing = false
   let started = false
   let checked = false
+  let reclaimAttempted = false
   let poll: number | undefined
 
   $: suggestedGuest = nextGuestName(seats)
   $: emptySeat = firstEmptySeat(seats)
-  $: canJoin = !missing && !started && !!emptySeat && !loading
+  $: offer = linkOffer({
+    closed: false,
+    started,
+    missing,
+    hasEmptySeat: !!emptySeat,
+    reclaimed: false,
+  })
+  $: canJoin = offer.sit && !loading
 
   async function refresh() {
     try {
@@ -39,21 +48,21 @@
         onEnded()
         return
       }
+      if (user && !reclaimAttempted) {
+        reclaimAttempted = true
+        try {
+          const session = await reclaimSeat(code)
+          saveSession(session)
+          onJoined(session)
+          return
+        } catch {
+          // This account has no seat on the table.
+        }
+      }
       if (gate.started) {
         started = true
         seats = []
-        if (user) {
-          try {
-            const session = await reclaimSeat(code)
-            saveSession(session)
-            onJoined(session)
-            return
-          } catch {
-            error = 'This game has already started.'
-          }
-        } else {
-          error = 'This game has already started.'
-        }
+        error = 'This game has already started.'
         return
       }
       started = false
@@ -151,12 +160,14 @@
       <p class="join-hint">Leave blank to join as {suggestedGuest}.</p>
     {/if}
 
-    {#if checked && !started}
+    {#if checked && offer.sit}
       <button class="primary" type="button" on:click={join} disabled={!canJoin}>
         Sit down
       </button>
+    {:else if checked && !started && !missing}
+      <button class="primary" type="button" disabled>Sit down</button>
     {/if}
-    {#if checked && !missing}
+    {#if checked && offer.watch}
       <button class={started ? 'primary' : 'secondary'} type="button" on:click={onWatch}>
         Watch
       </button>

@@ -85,19 +85,17 @@
         joinError = 'This table has ended.'
         return
       }
-      if (gate.started) {
-        if (user) {
-          try {
-            const session = await reclaimSeat(id)
-            saveSession(session)
-            onJoined(session)
-            return
-          } catch {
-            watchable = true
-            joinError = 'This game has already started.'
-            return
-          }
+      if (user) {
+        try {
+          const session = await reclaimSeat(id)
+          saveSession(session)
+          onJoined(session)
+          return
+        } catch {
+          // This account has no seat on the table.
         }
+      }
+      if (gate.started) {
         watchable = true
         joinError = 'This game has already started.'
         return

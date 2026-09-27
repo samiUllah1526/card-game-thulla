@@ -7,14 +7,13 @@
   import { connectGame, type GameConnection } from './multiplayer/gameClient'
   import { fetchMatchGate, fetchMe, openWatch, registerSeat } from './multiplayer/authClient'
   import type { PublicUser } from './multiplayer/authTypes'
-  import { clearSession, loadSession, parseJoinPath, parseWatchPath } from './multiplayer/lobby'
+  import { clearSession, loadSession, parseJoinPath, parseWatchPath, shouldReconnect } from './multiplayer/lobby'
   import type { WatchSnapshot } from './multiplayer/watchTypes'
 
   const joinCodeAtLoad = parseJoinPath()
   const watchAtLoad = parseWatchPath()
   const stored = loadSession()
-  const reconnect =
-    !watchAtLoad && stored && (!joinCodeAtLoad || stored.matchID === joinCodeAtLoad) ? stored : null
+  const reconnect = shouldReconnect(stored, joinCodeAtLoad, watchAtLoad) ? stored : null
 
   let joinCode: string | null = reconnect || watchAtLoad ? null : joinCodeAtLoad
   let session: Session | null = null

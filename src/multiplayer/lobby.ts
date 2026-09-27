@@ -105,6 +105,18 @@ export function firstEmptySeat(seats: LobbySeat[]): LobbySeat | undefined {
   return seats.find((seat) => !seat.name)
 }
 
+/**
+ * A saved seat for this table sits back down. A dropped browser still has
+ * that seat in localStorage. A watch URL must not steal it.
+ */
+export function shouldReconnect(
+  stored: { matchID?: string } | null,
+  joinCode: string | null,
+  watchCode: string | null,
+): boolean {
+  return !watchCode && !!stored?.matchID && (!joinCode || stored.matchID === joinCode)
+}
+
 export function saveSession(session: Session): void {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
 }

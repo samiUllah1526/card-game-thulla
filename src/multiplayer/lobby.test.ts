@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nextGuestName, parseJoinPath } from './lobby'
+import { nextGuestName, parseJoinPath, shouldReconnect } from './lobby'
 
 describe('nextGuestName', () => {
   it('starts at guest1 on an empty table', () => {
@@ -46,5 +46,26 @@ describe('parseJoinPath', () => {
     expect(parseJoinPath('/')).toBeNull()
     expect(parseJoinPath('/join')).toBeNull()
     expect(parseJoinPath('/join/abc/extra')).toBeNull()
+  })
+})
+
+describe('shouldReconnect', () => {
+  const seat = { matchID: 'table-1' }
+
+  it('sits back down when the browser reopens the same link', () => {
+    expect(shouldReconnect(seat, 'table-1', null)).toBe(true)
+  })
+
+  it('sits back down when the app reopens with no link', () => {
+    expect(shouldReconnect(seat, null, null)).toBe(true)
+  })
+
+  it('does not steal a seat from a watch link', () => {
+    expect(shouldReconnect(seat, null, 'table-1')).toBe(false)
+  })
+
+  it('leaves a different table on the choice screen', () => {
+    expect(shouldReconnect(seat, 'other-table', null)).toBe(false)
+    expect(shouldReconnect(null, 'table-1', null)).toBe(false)
   })
 })
