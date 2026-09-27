@@ -3,10 +3,13 @@ import type Database from 'better-sqlite3'
 import type { Server } from 'boardgame.io'
 import { config } from '../config'
 import { utcNowMs } from '../lib/time'
-import type { DealResult, LobbySeat } from '../games/bhabhi-thulla/types'
+import type { BhabhiState, DealResult, LobbySeat } from '../games/bhabhi-thulla/types'
+import { filterPlayerView } from '../games/bhabhi-thulla/peek'
 import type { TableChatMessage } from './chat'
 import { tallyLeaderboard, type MatchLeaderboard } from './leaderboard'
 import type { PublicUser } from './authTypes'
+import { publishWatch } from './watchHub'
+import type { WatchSnapshot } from './watchTypes'
 
 export class AppError extends Error {
   constructor(
@@ -222,6 +225,28 @@ export class AppStore {
     this.db.prepare(`DELETE FROM match_gates WHERE match_id = ?`).run(matchID)
   }
 
+  /**
+   * What a spectator may see. No seat is created, and the payload has no
+   * credentials, chat, or move log.
+   */
+  watchSnapshot(matchID: string): WatchSnapshot {
+    if (this.isClosed(matchID)) throw new AppError('This table has ended.', 410)
+    const record = this.matchRecord(matchID)
+    if (!record?.G) throw new AppError('That table was not found.', 404)
+    let G: BhabhiState
+    try {
+      G = filterPlayerView(record.G, null)
+    } catch {
+      throw new AppError('That table was not found.', 404)
+    }
+    return {
+      closed: false,
+      seats: this.seatList(matchID),
+      G,
+      ctx: { currentPlayer: record.ctx?.currentPlayer ?? '0' },
+    }
+  }
+
   matchGate(matchID: string): { closed: boolean; started: boolean } {
     const game = this.matchGame(matchID)
     return { closed: this.isClosed(matchID), started: !!game?.started }
@@ -373,6 +398,19 @@ export class AppStore {
     this.db
       .prepare(`UPDATE match_gates SET closed_at = COALESCE(closed_at, ?) WHERE match_id = ?`)
       .run(utcNowMs(), matchID)
+    publishWatch(matchID, { closed: true })
+  }
+
+  private matchRecord(matchID: string): { G?: BhabhiState; ctx?: { currentPlayer?: string } } | null {
+    const row = this.db.prepare(`SELECT state FROM matches WHERE id = ?`).get(matchID) as
+      | { state: string | null }
+      | undefined
+    if (!row?.state) return null
+    try {
+      return JSON.parse(row.state) as { G?: BhabhiState; ctx?: { currentPlayer?: string } }
+    } catch {
+      return null
+    }
   }
 
   private remainingSeats(matchID: string, left: string[]): string[] {

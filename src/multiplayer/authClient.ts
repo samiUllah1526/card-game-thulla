@@ -2,6 +2,7 @@ import type { PublicUser } from './authTypes'
 import type { TableChatMessage } from './chat'
 import type { MatchLeaderboard } from './leaderboard'
 import type { Session } from '../games/bhabhi-thulla/types'
+import type { WatchEvent } from './watchTypes'
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -127,6 +128,19 @@ export async function deleteMatchChat(session: Session, messageID: string): Prom
       headers: seatHeaders(session),
     },
   )
+}
+
+/** Live public table. The stream never carries a seat secret. */
+export function openWatch(matchID: string, onEvent: (event: WatchEvent) => void): () => void {
+  const source = new EventSource(`/api/matches/${encodeURIComponent(matchID)}/watch/events`)
+  source.onmessage = (message) => {
+    try {
+      onEvent(JSON.parse(message.data) as WatchEvent)
+    } catch {
+      // Ignore a malformed frame and wait for the next one.
+    }
+  }
+  return () => source.close()
 }
 
 export async function fetchMatchLeaderboard(session: Session): Promise<MatchLeaderboard> {

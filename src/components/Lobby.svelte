@@ -6,6 +6,7 @@
   import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
 
   export let onJoined: (session: Session) => void
+  export let onWatch: (matchID: string) => void = () => {}
   export let user: PublicUser | null = null
   export let onUser: (user: PublicUser | null) => void = () => {}
 
@@ -27,6 +28,7 @@
   let loading = false
   let createError = ''
   let joinError = ''
+  let watchable = false
   let authMode: 'signin' | 'signup' = 'signin'
   let authEmail = ''
   let authPassword = ''
@@ -64,6 +66,7 @@
     if (!id) return
     loading = true
     joinError = ''
+    watchable = false
     seats = []
     try {
       const gate = await fetchMatchGate(id)
@@ -79,18 +82,22 @@
             onJoined(session)
             return
           } catch {
+            watchable = true
             joinError = 'This game has already started.'
             return
           }
         }
+        watchable = true
         joinError = 'This game has already started.'
         return
       }
+      watchable = true
       seats = await getSeats(id)
       selectedSeat = String(seats.find((seat) => !seat.name)?.id ?? '')
       if (!selectedSeat) joinError = 'This game is full.'
     } catch (reason) {
       seats = []
+      watchable = false
       joinError = reason instanceof Error ? reason.message : 'Game not found.'
     } finally {
       loading = false
@@ -271,7 +278,14 @@
             {/each}
           </select>
         </label>
-        <button class="primary" on:click={join} disabled={loading || !selectedSeat}>Join game</button>
+        <button class="primary" on:click={join} disabled={loading || !selectedSeat}>Sit down</button>
+      {/if}
+      {#if watchable}
+        <button
+          class={seats.length ? 'secondary' : 'primary'}
+          type="button"
+          on:click={() => onWatch(matchID.trim())}
+        >Watch</button>
       {/if}
       {#if joinError}<p class="error" role="alert">{joinError}</p>{/if}
     </section>

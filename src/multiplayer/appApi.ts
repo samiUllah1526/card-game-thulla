@@ -4,6 +4,7 @@ import bodyParser from 'koa-bodyparser'
 import { config } from '../config'
 import { sanitizeChatText } from './chat'
 import { AppError, type AppStore } from './appStore'
+import { subscribeWatch } from './watchHub'
 
 const COOKIE = config.auth.cookieName
 const cookieOpts = {
@@ -128,6 +129,61 @@ export function createAppRouter(store: AppStore | null): Router {
     } catch (reason) {
       sendError(ctx, reason)
     }
+  })
+
+  router.get('/api/matches/:id/watch', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    try {
+      ctx.body = db.watchSnapshot(String(ctx.params.id))
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.get('/api/matches/:id/watch/events', (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    const matchID = String(ctx.params.id)
+    ctx.request.socket.setTimeout(0)
+    ctx.respond = false
+    ctx.res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+
+    let ended = false
+    let ping: ReturnType<typeof setInterval> | undefined
+    let unsubscribe = () => {}
+    const send = (payload: unknown) => {
+      if (ended) return
+      ctx.res.write(`data: ${JSON.stringify(payload)}\n\n`)
+    }
+    const finish = () => {
+      if (ended) return
+      ended = true
+      if (ping) clearInterval(ping)
+      unsubscribe()
+      ctx.res.end()
+    }
+
+    try {
+      send(db.watchSnapshot(matchID))
+    } catch (reason) {
+      if (reason instanceof AppError && reason.status === 410) send({ closed: true })
+      finish()
+      return
+    }
+
+    unsubscribe = subscribeWatch(matchID, (event) => {
+      send(event)
+      if ('closed' in event && event.closed === true && !('G' in event)) finish()
+    })
+    ping = setInterval(() => {
+      if (!ended) ctx.res.write(': ping\n\n')
+    }, 15000)
+    ctx.req.on('close', finish)
   })
 
   router.get('/api/matches/:id/gate', (ctx) => {

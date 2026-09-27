@@ -17,6 +17,7 @@
   export let onJoined: (session: Session) => void
   export let onBack: () => void
   export let onEnded: () => void = () => {}
+  export let onWatch: () => void = () => {}
 
   let seats: LobbySeat[] = []
   let guestName = ''
@@ -116,9 +117,9 @@
           {#if !checked}
             Checking the table…
           {:else if started}
-            The invitation is closed.
+            The invitation is closed. You can still watch.
           {:else}
-            Tap Join to sit at the first empty seat. You are not seated yet.
+            Sit down takes an empty seat. Watch follows the table from the side.
           {/if}
         </p>
       </div>
@@ -152,7 +153,12 @@
 
     {#if checked && !started}
       <button class="primary" type="button" on:click={join} disabled={!canJoin}>
-        Join
+        Sit down
+      </button>
+    {/if}
+    {#if checked && !missing}
+      <button class={started ? 'primary' : 'secondary'} type="button" on:click={onWatch}>
+        Watch
       </button>
     {/if}
     <button class="secondary" type="button" on:click={onBack}>Back</button>
