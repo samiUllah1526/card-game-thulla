@@ -3,10 +3,13 @@ import type Database from 'better-sqlite3'
 import type { Server } from 'boardgame.io'
 import { config } from '../config'
 import { utcNowMs } from '../lib/time'
-import type { DealResult, LobbySeat } from '../games/bhabhi-thulla/types'
+import type { BhabhiState, DealResult, LobbySeat } from '../games/bhabhi-thulla/types'
+import { filterPlayerView } from '../games/bhabhi-thulla/peek'
 import type { TableChatMessage } from './chat'
 import { tallyLeaderboard, type MatchLeaderboard } from './leaderboard'
 import type { PublicUser } from './authTypes'
+import { publishWatch } from './watchHub'
+import type { WatchSnapshot } from './watchTypes'
 
 export class AppError extends Error {
   constructor(
@@ -57,6 +60,54 @@ export class AppStore {
     return {
       user: { id: row.id, email: row.email, displayName: row.display_name },
       token: this.createSession(row.id),
+    }
+  }
+
+  loginWithGoogle(profile: { sub: string; email: string; name: string }): {
+    user: PublicUser
+    token: string
+  } {
+    const sub = profile.sub.trim()
+    if (!sub) throw new AppError('Google account is missing an id.', 400)
+    const cleanEmail = normalizeEmail(profile.email)
+    const bySub = this.userByGoogleSub(sub)
+    if (bySub) return { user: bySub, token: this.createSession(bySub.id) }
+
+    const byEmail = this.userByEmail(cleanEmail)
+    if (byEmail) {
+      if (byEmail.googleSub && byEmail.googleSub !== sub) {
+        throw new AppError('That email is already linked to a different Google account.', 409)
+      }
+      if (!byEmail.googleSub) {
+        this.db.prepare(`UPDATE users SET google_sub = ? WHERE id = ?`).run(sub, byEmail.id)
+      }
+      const user: PublicUser = {
+        id: byEmail.id,
+        email: byEmail.email,
+        displayName: byEmail.displayName,
+      }
+      return { user, token: this.createSession(user.id) }
+    }
+
+    const name = googleDisplayName(profile.name, cleanEmail)
+    const hash = hashPassword(randomBytes(32).toString('hex'))
+    const now = utcNowMs()
+    try {
+      const result = this.db
+        .prepare(
+          `INSERT INTO users (email, password_hash, display_name, created_at, google_sub)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(cleanEmail, hash, name, now, sub)
+      const user: PublicUser = {
+        id: Number(result.lastInsertRowid),
+        email: cleanEmail,
+        displayName: name,
+      }
+      return { user, token: this.createSession(user.id) }
+    } catch (reason) {
+      if (isUniqueError(reason)) throw new AppError('That email is already registered.', 409)
+      throw reason
     }
   }
 
@@ -222,6 +273,28 @@ export class AppStore {
     this.db.prepare(`DELETE FROM match_gates WHERE match_id = ?`).run(matchID)
   }
 
+  /**
+   * What a spectator may see. No seat is created, and the payload has no
+   * credentials, chat, or move log.
+   */
+  watchSnapshot(matchID: string): WatchSnapshot {
+    if (this.isClosed(matchID)) throw new AppError('This table has ended.', 410)
+    const record = this.matchRecord(matchID)
+    if (!record?.G) throw new AppError('That table was not found.', 404)
+    let G: BhabhiState
+    try {
+      G = filterPlayerView(record.G, null)
+    } catch {
+      throw new AppError('That table was not found.', 404)
+    }
+    return {
+      closed: false,
+      seats: this.seatList(matchID),
+      G,
+      ctx: { currentPlayer: record.ctx?.currentPlayer ?? '0' },
+    }
+  }
+
   matchGate(matchID: string): { closed: boolean; started: boolean } {
     const game = this.matchGame(matchID)
     return { closed: this.isClosed(matchID), started: !!game?.started }
@@ -373,6 +446,19 @@ export class AppStore {
     this.db
       .prepare(`UPDATE match_gates SET closed_at = COALESCE(closed_at, ?) WHERE match_id = ?`)
       .run(utcNowMs(), matchID)
+    publishWatch(matchID, { closed: true })
+  }
+
+  private matchRecord(matchID: string): { G?: BhabhiState; ctx?: { currentPlayer?: string } } | null {
+    const row = this.db.prepare(`SELECT state FROM matches WHERE id = ?`).get(matchID) as
+      | { state: string | null }
+      | undefined
+    if (!row?.state) return null
+    try {
+      return JSON.parse(row.state) as { G?: BhabhiState; ctx?: { currentPlayer?: string } }
+    } catch {
+      return null
+    }
   }
 
   private remainingSeats(matchID: string, left: string[]): string[] {
@@ -400,6 +486,28 @@ export class AppStore {
       return state.G ?? null
     } catch {
       return null
+    }
+  }
+
+  private userByGoogleSub(sub: string): PublicUser | null {
+    const row = this.db
+      .prepare(`SELECT id, email, display_name FROM users WHERE google_sub = ?`)
+      .get(sub) as { id: number; email: string; display_name: string } | undefined
+    return row ? { id: row.id, email: row.email, displayName: row.display_name } : null
+  }
+
+  private userByEmail(email: string): (PublicUser & { googleSub: string | null }) | null {
+    const row = this.db
+      .prepare(`SELECT id, email, display_name, google_sub FROM users WHERE email = ?`)
+      .get(email) as
+      | { id: number; email: string; display_name: string; google_sub: string | null }
+      | undefined
+    if (!row) return null
+    return {
+      id: row.id,
+      email: row.email,
+      displayName: row.display_name,
+      googleSub: row.google_sub,
     }
   }
 
@@ -440,6 +548,19 @@ export function normalizeEmail(email: string): string {
     throw new AppError('Enter a valid email.', 400)
   }
   return value
+}
+
+function googleDisplayName(name: string, email: string): string {
+  const collapsed = name.replace(/\s+/g, ' ').trim()
+  if (collapsed.length >= 1 && collapsed.length <= config.auth.maxDisplayName) return collapsed
+  if (collapsed.length > config.auth.maxDisplayName) {
+    const trimmed = collapsed.slice(0, config.auth.maxDisplayName).trim()
+    if (trimmed) return trimmed
+  }
+  const local = email.split('@')[0] ?? ''
+  if (local.length >= 1 && local.length <= config.auth.maxDisplayName) return local
+  if (local.length > config.auth.maxDisplayName) return local.slice(0, config.auth.maxDisplayName)
+  return 'Player'
 }
 
 export function normalizeDisplayName(name: string): string {

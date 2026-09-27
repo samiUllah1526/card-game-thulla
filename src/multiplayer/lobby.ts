@@ -71,8 +71,17 @@ export function joinUrl(matchID: string, origin = window.location.origin): strin
 
 /** Read match code from `/join/:code`. */
 export function parseJoinPath(pathname = window.location.pathname): string | null {
+  return readCodePath('join', pathname)
+}
+
+/** Read match code from `/watch/:code`. Refresh reopens the watch view. */
+export function parseWatchPath(pathname = window.location.pathname): string | null {
+  return readCodePath('watch', pathname)
+}
+
+function readCodePath(kind: 'join' | 'watch', pathname: string): string | null {
   const parts = pathname.split('/').filter(Boolean)
-  if (parts.length !== 2 || parts[0] !== 'join' || !parts[1]) return null
+  if (parts.length !== 2 || parts[0] !== kind || !parts[1]) return null
   try {
     return decodeURIComponent(parts[1])
   } catch {

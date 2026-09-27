@@ -5,7 +5,8 @@ export const APP_SCHEMA = `
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     display_name TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    google_sub TEXT
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -61,4 +62,11 @@ export function applyAppSchema(db: SchemaDb): void {
   if (!columns.some((column) => column.name === 'deleted_at')) {
     db.exec(`ALTER TABLE chat_messages ADD COLUMN deleted_at INTEGER`)
   }
+  const userColumns = db.prepare(`PRAGMA table_info(users)`).all() as Array<{ name: string }>
+  if (!userColumns.some((column) => column.name === 'google_sub')) {
+    db.exec(`ALTER TABLE users ADD COLUMN google_sub TEXT`)
+  }
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL`,
+  )
 }

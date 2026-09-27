@@ -2,6 +2,7 @@ import type { PublicUser } from './authTypes'
 import type { TableChatMessage } from './chat'
 import type { MatchLeaderboard } from './leaderboard'
 import type { Session } from '../games/bhabhi-thulla/types'
+import type { WatchEvent } from './watchTypes'
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -34,6 +35,18 @@ export async function signup(
   const body = await json<{ user: PublicUser }>('/auth/signup', {
     method: 'POST',
     body: JSON.stringify({ email, password, displayName }),
+  })
+  return body.user
+}
+
+export async function fetchAuthProviders(): Promise<{ googleClientId: string | null }> {
+  return json<{ googleClientId: string | null }>('/auth/providers')
+}
+
+export async function loginWithGoogle(credential: string): Promise<PublicUser> {
+  const body = await json<{ user: PublicUser }>('/auth/google', {
+    method: 'POST',
+    body: JSON.stringify({ credential }),
   })
   return body.user
 }
@@ -127,6 +140,19 @@ export async function deleteMatchChat(session: Session, messageID: string): Prom
       headers: seatHeaders(session),
     },
   )
+}
+
+/** Live public table. The stream never carries a seat secret. */
+export function openWatch(matchID: string, onEvent: (event: WatchEvent) => void): () => void {
+  const source = new EventSource(`/api/matches/${encodeURIComponent(matchID)}/watch/events`)
+  source.onmessage = (message) => {
+    try {
+      onEvent(JSON.parse(message.data) as WatchEvent)
+    } catch {
+      // Ignore a malformed frame and wait for the next one.
+    }
+  }
+  return () => source.close()
 }
 
 export async function fetchMatchLeaderboard(session: Session): Promise<MatchLeaderboard> {

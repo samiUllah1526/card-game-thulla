@@ -4,7 +4,8 @@ import Database from 'better-sqlite3'
 import { Sync } from 'boardgame.io/internal'
 import type { LogEntry, Server, State, StorageAPI } from 'boardgame.io'
 import { applyAppSchema } from './appSchema'
-import { AppStore } from './appStore'
+import { AppError, AppStore } from './appStore'
+import { publishWatch } from './watchHub'
 import type { DealResult } from '../games/bhabhi-thulla/types'
 
 /**
@@ -110,6 +111,7 @@ export class SqliteStorage extends Sync {
     if (next?.phase === 'finished' && previousPhase !== 'finished') {
       this.appStore?.closeIfAbandoned(matchID)
     }
+    this.publishTable(matchID)
   }
 
   setMetadata(matchID: string, metadata: Server.MatchData): void {
@@ -123,6 +125,18 @@ export class SqliteStorage extends Sync {
         id: matchID,
         metadata: JSON.stringify(metadata),
       })
+    this.publishTable(matchID)
+  }
+
+  private publishTable(matchID: string): void {
+    if (!this.appStore) return
+    try {
+      publishWatch(matchID, this.appStore.watchSnapshot(matchID))
+    } catch (reason) {
+      if (reason instanceof AppError && reason.status === 410) {
+        publishWatch(matchID, { closed: true })
+      }
+    }
   }
 
   fetch<O extends StorageAPI.FetchOpts>(

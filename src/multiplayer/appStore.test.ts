@@ -66,6 +66,58 @@ describe('AppStore auth, chat, and deals', () => {
     expect(() => app.signup('ok@example.com', 'short', 'Ali')).toThrow(/password/i)
   })
 
+  it('signs in with Google and links a matching email', () => {
+    const app = open()
+    const created = app.loginWithGoogle({
+      sub: 'sub-1',
+      email: 'Ada@example.com',
+      name: 'Ada Lovelace',
+    })
+    expect(created.user).toMatchObject({ email: 'ada@example.com', displayName: 'Ada Lovelace' })
+    expect(app.userForToken(created.token)?.id).toBe(created.user.id)
+
+    const again = app.loginWithGoogle({
+      sub: 'sub-1',
+      email: 'ada@example.com',
+      name: 'Someone Else',
+    })
+    expect(again.user.id).toBe(created.user.id)
+    expect(again.user.displayName).toBe('Ada Lovelace')
+    expect(() => app.login('ada@example.com', 'secret123')).toThrow(/wrong/i)
+
+    const password = app.signup('bea@example.com', 'secret123', 'Bea')
+    const linked = app.loginWithGoogle({
+      sub: 'sub-bea',
+      email: 'Bea@example.com',
+      name: 'Beatrice',
+    })
+    expect(linked.user.id).toBe(password.user.id)
+    expect(linked.user.displayName).toBe('Bea')
+    expect(app.login('bea@example.com', 'secret123').user.id).toBe(password.user.id)
+
+    expect(() =>
+      app.loginWithGoogle({ sub: 'other-sub', email: 'bea@example.com', name: 'Nope' }),
+    ).toThrow(AppError)
+    try {
+      app.loginWithGoogle({ sub: 'other-sub', email: 'bea@example.com', name: 'Nope' })
+    } catch (reason) {
+      expect((reason as AppError).status).toBe(409)
+    }
+
+    const longName = app.loginWithGoogle({
+      sub: 'sub-long',
+      email: 'long@example.com',
+      name: 'A'.repeat(40),
+    })
+    expect(longName.user.displayName).toHaveLength(24)
+    const fromEmail = app.loginWithGoogle({
+      sub: 'sub-local',
+      email: 'cam-player@example.com',
+      name: '   ',
+    })
+    expect(fromEmail.user.displayName).toBe('cam-player')
+  })
+
   it('logout drops the session token', () => {
     const app = open()
     const { token } = app.signup('bea@example.com', 'secret123', 'Bea')
@@ -185,6 +237,46 @@ describe('AppStore auth, chat, and deals', () => {
     app.closeMatch('m1', '0')
     expect(app.isClosed('m1')).toBe(true)
     expect(app.matchGate('m1')).toEqual({ closed: true, started: true })
+  })
+
+  it('shows a spectator the public table only', () => {
+    dir = mkdtempSync(join(tmpdir(), 'thulla-app-'))
+    const storage = new SqliteStorage(join(dir, 'test.sqlite'))
+    storage.connect()
+    storage.createMatch('m1', {
+      initialState: fakeState({
+        started: true,
+        phase: 'preTrick',
+        hostID: '0',
+        hands: {
+          '0': [{ id: 'AS', suit: 'S', rank: 14 }],
+          '1': [{ id: 'KH', suit: 'H', rank: 13 }],
+        },
+        waste: [{ id: '2C', suit: 'C', rank: 2 }],
+        peekers: { '0': true },
+        handCounts: { '0': 1, '1': 1 },
+        trick: [{ playerID: '0', card: { id: 'QS', suit: 'S', rank: 12 } }],
+      }),
+      metadata: fakeMeta(),
+    })
+    const app = storage.getAppStore()
+    const view = app.watchSnapshot('m1')
+
+    expect(view.closed).toBe(false)
+    expect(view.G.hands['0']).toEqual([])
+    expect(view.G.hands['1']).toEqual([])
+    expect(view.G.waste).toEqual([])
+    expect(view.G.peekers).toBeUndefined()
+    expect(view.G.handCounts).toEqual({ '0': 1, '1': 1 })
+    expect(view.G.trick).toHaveLength(1)
+    expect(view.seats.map((seat) => seat.name)).toEqual(['Ali', 'Bea', 'Cam'])
+    expect(JSON.stringify(view)).not.toContain('cred-0')
+    expect(view).not.toHaveProperty('log')
+
+    storage.setState('m1', fakeState({ phase: 'finished', started: true, hostID: '0', left: [] }))
+    app.closeMatch('m1', '0')
+    expect(app.joinBlock('m1')).toBe('closed')
+    expect(() => app.watchSnapshot('m1')).toThrow(/ended/i)
   })
 
   it('adds deleted_at when an older chat table has no such column', () => {

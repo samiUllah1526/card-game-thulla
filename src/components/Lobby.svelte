@@ -1,11 +1,20 @@
 <script lang="ts">
   import { config } from '../config'
   import { createMatch, getSeats, joinMatch, saveSession } from '../multiplayer/lobby'
-  import { fetchMatchGate, login, logout, reclaimSeat, signup } from '../multiplayer/authClient'
+  import {
+    fetchAuthProviders,
+    fetchMatchGate,
+    login,
+    loginWithGoogle,
+    logout,
+    reclaimSeat,
+    signup,
+  } from '../multiplayer/authClient'
   import type { PublicUser } from '../multiplayer/authTypes'
   import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
 
   export let onJoined: (session: Session) => void
+  export let onWatch: (matchID: string) => void = () => {}
   export let user: PublicUser | null = null
   export let onUser: (user: PublicUser | null) => void = () => {}
 
@@ -27,15 +36,19 @@
   let loading = false
   let createError = ''
   let joinError = ''
+  let watchable = false
   let authMode: 'signin' | 'signup' = 'signin'
   let authEmail = ''
   let authPassword = ''
   let authName = ''
   let authError = ''
   let authLoading = false
+  let googleClientId: string | null = null
+  let providersRequested = false
 
   $: selectedAlgo = algorithms.find((entry) => entry.id === shuffleAlgorithm) ?? algorithms[0]
   $: if (user) playerName = user.displayName
+  $: if (tab === 'account' && !user) void loadProviders()
 
   async function create() {
     if (!playerName.trim()) {
@@ -64,6 +77,7 @@
     if (!id) return
     loading = true
     joinError = ''
+    watchable = false
     seats = []
     try {
       const gate = await fetchMatchGate(id)
@@ -79,18 +93,22 @@
             onJoined(session)
             return
           } catch {
+            watchable = true
             joinError = 'This game has already started.'
             return
           }
         }
+        watchable = true
         joinError = 'This game has already started.'
         return
       }
+      watchable = true
       seats = await getSeats(id)
       selectedSeat = String(seats.find((seat) => !seat.name)?.id ?? '')
       if (!selectedSeat) joinError = 'This game is full.'
     } catch (reason) {
       seats = []
+      watchable = false
       joinError = reason instanceof Error ? reason.message : 'Game not found.'
     } finally {
       loading = false
@@ -133,6 +151,64 @@
     }
   }
 
+  async function loadProviders() {
+    if (providersRequested) return
+    providersRequested = true
+    try {
+      googleClientId = (await fetchAuthProviders()).googleClientId
+    } catch {
+      googleClientId = null
+    }
+  }
+
+  async function signInWithGoogle(credential: string) {
+    if (authLoading) return
+    authLoading = true
+    authError = ''
+    try {
+      onUser(await loginWithGoogle(credential))
+      tab = 'create'
+    } catch (reason) {
+      authError = reason instanceof Error ? reason.message : 'Could not sign in.'
+    } finally {
+      authLoading = false
+    }
+  }
+
+  function mountGoogleButton(node: HTMLElement, clientId: string) {
+    let cancelled = false
+    void loadGsiScript()
+      .then(() => {
+        if (cancelled) return
+        const identity = googleIdentity()
+        if (!identity) throw new Error('Could not load Google sign-in.')
+        identity.initialize({
+          client_id: clientId,
+          callback: (response) => {
+            if (response.credential) void signInWithGoogle(response.credential)
+          },
+        })
+        const width = Math.max(200, Math.min(400, node.clientWidth || 320))
+        identity.renderButton(node, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'continue_with',
+          width,
+          logo_alignment: 'left',
+        })
+      })
+      .catch((reason: unknown) => {
+        authError = reason instanceof Error ? reason.message : 'Could not load Google sign-in.'
+      })
+    return {
+      destroy() {
+        cancelled = true
+        node.replaceChildren()
+      },
+    }
+  }
+
   async function signOut() {
     authLoading = true
     authError = ''
@@ -144,6 +220,36 @@
     } finally {
       authLoading = false
     }
+  }
+
+  interface GoogleIdentity {
+    initialize(config: {
+      client_id: string
+      callback: (response: { credential?: string }) => void
+    }): void
+    renderButton(parent: HTMLElement, options: Record<string, string | number>): void
+  }
+
+  function googleIdentity(): GoogleIdentity | null {
+    const google = (window as Window & { google?: { accounts?: { id?: GoogleIdentity } } }).google
+    return google?.accounts?.id ?? null
+  }
+
+  let gsiScript: Promise<void> | null = null
+
+  function loadGsiScript(): Promise<void> {
+    if (googleIdentity()) return Promise.resolve()
+    if (!gsiScript) {
+      gsiScript = new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = 'https://accounts.google.com/gsi/client'
+        script.async = true
+        script.onload = () => resolve()
+        script.onerror = () => reject(new Error('Could not load Google sign-in.'))
+        document.head.appendChild(script)
+      })
+    }
+    return gsiScript
   }
 </script>
 
@@ -271,7 +377,14 @@
             {/each}
           </select>
         </label>
-        <button class="primary" on:click={join} disabled={loading || !selectedSeat}>Join game</button>
+        <button class="primary" on:click={join} disabled={loading || !selectedSeat}>Sit down</button>
+      {/if}
+      {#if watchable}
+        <button
+          class={seats.length ? 'secondary' : 'primary'}
+          type="button"
+          on:click={() => onWatch(matchID.trim())}
+        >Watch</button>
       {/if}
       {#if joinError}<p class="error" role="alert">{joinError}</p>{/if}
     </section>
@@ -283,6 +396,9 @@
           <button class="secondary" type="button" on:click={signOut} disabled={authLoading}>Sign out</button>
         </div>
       {:else}
+        {#if googleClientId}
+          <div class="google-signin" use:mountGoogleButton={googleClientId}></div>
+        {/if}
         <div class="auth-tabs" role="tablist">
           <button
             type="button"

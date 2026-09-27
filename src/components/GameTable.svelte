@@ -16,6 +16,7 @@
     Suit,
   } from '../games/bhabhi-thulla/types'
   import type { GameConnection, GameSnapshot } from '../multiplayer/gameClient'
+  import type { WatchSnapshot } from '../multiplayer/watchTypes'
   import { getSeats, joinUrl } from '../multiplayer/lobby'
   import { closeMatch, departMatch, fetchMatchGate, fetchMatchLeaderboard } from '../multiplayer/authClient'
   import { tallyLeaderboard, type MatchLeaderboard } from '../multiplayer/leaderboard'
@@ -27,9 +28,11 @@
   import PeekGate from './PeekGate.svelte'
 
   export let session: Session
-  export let connection: GameConnection
+  export let connection: GameConnection | null = null
   export let onLeave: () => void
   export let onClosed: () => void = () => {}
+  export let watching = false
+  export let snapshot: WatchSnapshot | null = null
 
   const { timing, haptics, roast } = config
 
@@ -84,7 +87,11 @@
   let seenTakeAskID = 0
   let seenTakeRejectID = 0
 
-  const unsubscribe = connection.state.subscribe((value) => {
+  $: if (watching && snapshot) seats = snapshot.seats
+
+  const live = connection
+  const unsubscribe = live
+    ? live.state.subscribe((value) => {
     const G = value?.G
     if (G) {
       // Flush queued peek unlock once this seat is allowed to move.
@@ -99,7 +106,7 @@
           playerID: session.playerID,
           turnPlayer: G.turnPlayer,
         })
-        connection.moves.unlockPeek(password)
+        live.moves.unlockPeek(password)
       }
       const unlocked = !!G.peekers?.[session.playerID]
       if (unlocked && !peekWasUnlocked) {
@@ -198,6 +205,7 @@
     }
     state = value
   })
+    : () => {}
 
   function vibrate(pattern: readonly number[]) {
     try {
@@ -251,6 +259,12 @@
   }
 
   onMount(() => {
+    if (watching || !connection) {
+      if (!watching) return
+      void watchGate()
+      poll = window.setInterval(() => void watchGate(), timing.seatPollMs)
+      return
+    }
     refreshSeats()
     void watchGate()
     poll = window.setInterval(() => {
@@ -390,8 +404,8 @@
   }
 
   function playSelected() {
-    if (!selectedCard) return
-    connection.moves.playCard(selectedCard)
+    if (!connection || !selectedCard) return
+    live!.moves.playCard(selectedCard)
     selectedCard = ''
   }
 
@@ -430,12 +444,13 @@
   }
 
   function requestPeekUnlock(password: string) {
+    if (!connection) return
     if (state?.isActive) {
       peekLog('sending unlock now (you are the active seat)', {
         playerID: session.playerID,
         turnPlayer: state.G?.turnPlayer,
       })
-      connection.moves.unlockPeek(password)
+      live!.moves.unlockPeek(password)
       return
     }
     pendingPeekPassword = password
@@ -529,7 +544,7 @@
       return
     }
     if (!window.confirm('Leave the game? Your cards will be discarded.')) return
-    connection.moves.leaveGame()
+    connection?.moves.leaveGame()
     window.setTimeout(onLeave, 50)
   }
 
@@ -543,7 +558,134 @@
   }
 </script>
 
-{#if !state}
+{#if watching}
+  {#if !snapshot}
+    <main class="loading page"><div class="spinner"></div><p>Opening the table…</p></main>
+  {:else}
+    {@const G = snapshot.G}
+    {@const pendingPickup = G.lastPickup && !G.lastPickup.dismissed ? G.lastPickup : null}
+    <div class="table-shell" class:waiting={!G.started} class:playing={G.started}>
+      <main class="table-page" class:finished={G.phase === 'finished'}>
+        <header class="table-header">
+          <button class="icon-button" on:click={onLeave} aria-label="Stop watching">←</button>
+          <div>
+            <p class="eyebrow">Watching</p>
+            <div class="share-actions">
+              <button class="code" on:click={() => copyShare('code')}>
+                {copied === 'code' ? 'Copied!' : session.matchID}
+              </button>
+              <button type="button" class="copy-link" on:click={() => copyShare('link')}>
+                {copied === 'link' ? 'Copied!' : 'Copy link'}
+              </button>
+            </div>
+          </div>
+          <div class="waste">
+            <span>▧</span><strong>{G.wasteCount}</strong><small>waste</small>
+          </div>
+        </header>
+
+        {#if !G.started}
+          <section class="waiting-card">
+            <h1>Players are joining</h1>
+            <p>You are watching. Empty seats stay empty.</p>
+            <div class="seat-list">
+              {#each snapshot.seats as seat}
+                <div class:filled={!!seat.name}>
+                  <span>{seat.name ? seat.name.slice(0, 1).toUpperCase() : seat.id + 1}</span>
+                  <p>{seat.name ?? 'Empty seat'}</p>
+                </div>
+              {/each}
+            </div>
+          </section>
+        {:else}
+          <section class="opponents" aria-label="Players">
+            {#each G.active as playerID (playerID)}
+              <div class="opponent" class:turn={G.turnPlayer === playerID && !pendingPickup}>
+                <div class="avatar">{nameFor(playerID).slice(0, 1).toUpperCase()}</div>
+                <strong class="player-name">{nameFor(playerID)}</strong>
+                <span class="count">▰ {G.handCounts[playerID]}</span>
+              </div>
+            {/each}
+            {#each G.gotAway.filter((id) => !(G.left ?? []).includes(id)) as playerID (playerID)}
+              <div class="opponent escaped">
+                <div class="avatar">✓</div><strong class="player-name">{nameFor(playerID)}</strong><span>Got away</span>
+              </div>
+            {/each}
+            {#each G.left ?? [] as playerID (playerID)}
+              <div class="opponent left">
+                <div class="avatar">←</div><strong class="player-name">{nameFor(playerID)}</strong><span>Left</span>
+              </div>
+            {/each}
+          </section>
+
+          <section class="play-area">
+            <div class="status">
+              <span class="status-dot"></span>
+              {G.phase === 'finished'
+                ? `${nameFor(G.bhabhi!)} is Bhabhi`
+                : `${nameFor(G.turnPlayer)} is playing`}
+            </div>
+            <div class="trick">
+              {#if pendingPickup}
+                <p class="pickup-title">
+                  {nameFor(pendingPickup.giver)} could not follow {suitName(pendingPickup.ledSuit)}
+                </p>
+                <div class="pickup-cards">
+                  {#each pendingPickup.cards as card (card.id)}
+                    <div class="card-face" class:red={isRed(card)}>{cardLabel(card)}</div>
+                  {/each}
+                </div>
+              {:else if G.trick.length === 0}
+                <div class="empty-trick"><span>♠</span><p>Waiting for the lead</p></div>
+              {:else}
+                {#each G.trick as play (play.playerID)}
+                  <div class="played-card">
+                    <small>{nameFor(play.playerID)}</small>
+                    <div class:red={isRed(play.card)} class="card-face">{cardLabel(play.card)}</div>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+            {#if G.events.length && !pendingPickup}
+              {@const lastEvent = G.events[G.events.length - 1]}
+              <div class="event-banner">{describe(lastEvent)}</div>
+            {/if}
+          </section>
+
+          <section class="hand-area">
+            {#if G.phase === 'finished'}
+              <div class="game-over">
+                <p>Game over</p>
+                <h2>{nameFor(G.bhabhi!)} is Bhabhi</h2>
+                {#if G.dealHistory?.length}
+                  {@const board = tallyLeaderboard(G.dealHistory, snapshot.seats)}
+                  {#if board.players.length}
+                    <table class="scoreboard">
+                      <thead>
+                        <tr><th>Player</th><th>Got away</th><th>Bhabhi</th></tr>
+                      </thead>
+                      <tbody>
+                        {#each board.players as row (row.playerID)}
+                          <tr class:loser={row.playerID === G.bhabhi}>
+                            <td>{row.name}</td>
+                            <td>{row.gotAway}</td>
+                            <td>{row.bhabhi}</td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  {/if}
+                {/if}
+              </div>
+            {:else}
+              <p class="waiting-pill">Watching this table</p>
+            {/if}
+          </section>
+        {/if}
+      </main>
+    </div>
+  {/if}
+{:else if !state}
   <main class="loading page"><div class="spinner"></div><p>Connecting to the table…</p></main>
 {:else}
   {@const G = state.G}
@@ -628,7 +770,7 @@
           <button
             class="primary"
             disabled={seats.length < config.game.minPlayers || seats.some((seat) => !seat.name)}
-            on:click={connection.moves.startGame}
+            on:click={live!.moves.startGame}
           >Start game</button>
         {:else}
           <div class="waiting-pill">Waiting for the host to start…</div>
@@ -768,7 +910,7 @@
                 <strong>{nameFor(pendingPickup.receiver)}</strong> picks up {pendingPickup.cards.length} cards
               </p>
               {#if pendingPickup.receiver === session.playerID}
-                <button class="primary continue-button" on:click={connection.moves.dismissPickup} in:fly={{ y: 16, duration: 300, delay: 500 }} out:fade={{ duration: 120 }}>
+                <button class="primary continue-button" on:click={live!.moves.dismissPickup} in:fly={{ y: 16, duration: 300, delay: 500 }} out:fade={{ duration: 120 }}>
                   Continue
                 </button>
               {:else}
@@ -829,7 +971,7 @@
             {/if}
             <div class="game-over-actions">
               {#if session.playerID === G.hostID}
-                <button class="primary" on:click={connection.moves.playAgain}>Play again</button>
+                <button class="primary" on:click={live!.moves.playAgain}>Play again</button>
                 <button class="secondary" type="button" on:click={endTable}>End table</button>
               {:else}
                 <div class="waiting-pill">Waiting for the host to play again…</div>
@@ -856,13 +998,13 @@
             <div class="take-ask-banner" role="alertdialog" aria-label="Take request" in:fly={{ y: 16, duration: 280 }}>
               <p><strong>{nameFor(pendingTake.from)}</strong> wants to take all your cards</p>
               <div class="take-ask-actions">
-                <button class="accept-button" on:click={() => connection.moves.respondTake(true)}>Accept</button>
-                <button class="reject-button" on:click={() => connection.moves.respondTake(false)}>Reject</button>
+                <button class="accept-button" on:click={() => live!.moves.respondTake(true)}>Accept</button>
+                <button class="reject-button" on:click={() => live!.moves.respondTake(false)}>Reject</button>
               </div>
             </div>
           {/if}
           {#if canAct && G.phase === 'preTrick' && nextVictim}
-            <button class="take-button" on:click={connection.moves.takeLeftHand}>
+            <button class="take-button" on:click={live!.moves.takeLeftHand}>
               {G.takeRequiresPermission
                 ? `Ask to take ${nameFor(nextVictim)}’s cards`
                 : `Take ${nameFor(nextVictim)}’s cards`}
@@ -921,7 +1063,7 @@
           <h2 class="roast-name">{nameFor(pendingReject.from)}</h2>
           <p class="roast-taunt">{takeRejectTaunt || `${nameFor(pendingReject.from)} got shut down!`}</p>
           {#if pendingReject.from === session.playerID}
-            <button class="primary roast-dismiss" on:click={connection.moves.dismissTakeReject}>
+            <button class="primary roast-dismiss" on:click={live!.moves.dismissTakeReject}>
               Continue
             </button>
           {:else}
@@ -961,9 +1103,9 @@
 
   {#key G.started}
     <TableChat
-      messages={connection.chat}
-      sendChat={connection.sendChat}
-      deleteChat={connection.deleteChat}
+      messages={live!.chat}
+      sendChat={live!.sendChat}
+      deleteChat={live!.deleteChat}
       me={session.playerID}
       {nameFor}
       mode={G.started ? 'game' : 'lobby'}

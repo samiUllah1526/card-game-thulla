@@ -5,24 +5,44 @@
   import GameTable from './components/GameTable.svelte'
   import type { Session } from './games/bhabhi-thulla/types'
   import { connectGame, type GameConnection } from './multiplayer/gameClient'
-  import { fetchMatchGate, fetchMe, registerSeat } from './multiplayer/authClient'
+  import { fetchMatchGate, fetchMe, openWatch, registerSeat } from './multiplayer/authClient'
   import type { PublicUser } from './multiplayer/authTypes'
-  import { clearSession, loadSession, parseJoinPath } from './multiplayer/lobby'
+  import { clearSession, loadSession, parseJoinPath, parseWatchPath } from './multiplayer/lobby'
+  import type { WatchSnapshot } from './multiplayer/watchTypes'
 
   const joinCodeAtLoad = parseJoinPath()
+  const watchAtLoad = parseWatchPath()
   const stored = loadSession()
-  const reconnect = stored && (!joinCodeAtLoad || stored.matchID === joinCodeAtLoad) ? stored : null
+  const reconnect =
+    !watchAtLoad && stored && (!joinCodeAtLoad || stored.matchID === joinCodeAtLoad) ? stored : null
 
-  let joinCode: string | null = reconnect ? null : joinCodeAtLoad
+  let joinCode: string | null = reconnect || watchAtLoad ? null : joinCodeAtLoad
   let session: Session | null = null
   let connection: GameConnection | null = null
   let user: PublicUser | null = null
   let authReady = false
-  let gateReady = !reconnect
+  let gateReady = !reconnect && !watchAtLoad
   let ended = false
+  let watchingID: string | null = null
+  let watchSnapshot: WatchSnapshot | null = null
+  let stopWatch: (() => void) | null = null
 
   if (reconnect && joinCodeAtLoad) {
     history.replaceState({}, '', '/')
+  }
+
+  if (watchAtLoad) {
+    void (async () => {
+      try {
+        const gate = await fetchMatchGate(watchAtLoad)
+        if (gate.closed) ended = true
+        else beginWatch(watchAtLoad)
+      } catch {
+        beginWatch(watchAtLoad)
+      } finally {
+        gateReady = true
+      }
+    })()
   }
 
   if (reconnect) {
@@ -69,6 +89,41 @@
     if (parseJoinPath()) history.replaceState({}, '', '/')
   }
 
+  function beginWatch(matchID: string) {
+    connection?.stop()
+    connection = null
+    session = null
+    joinCode = null
+    ended = false
+    watchingID = matchID
+    watchSnapshot = null
+    stopWatch?.()
+    stopWatch = openWatch(matchID, (event) => {
+      if ('G' in event) watchSnapshot = event
+      else endWatch()
+    })
+    const nextPath = `/watch/${encodeURIComponent(matchID)}`
+    if (window.location.pathname !== nextPath) history.replaceState({}, '', nextPath)
+  }
+
+  function leaveWatch() {
+    stopWatch?.()
+    stopWatch = null
+    watchingID = null
+    watchSnapshot = null
+    ended = false
+    if (parseWatchPath() || parseJoinPath()) history.replaceState({}, '', '/')
+  }
+
+  function endWatch() {
+    stopWatch?.()
+    stopWatch = null
+    watchingID = null
+    watchSnapshot = null
+    ended = true
+    if (parseWatchPath() || parseJoinPath()) history.replaceState({}, '', '/')
+  }
+
   function leaveJoinPage() {
     joinCode = null
     if (parseJoinPath()) history.replaceState({}, '', '/')
@@ -106,7 +161,10 @@
     ended = false
   }
 
-  onDestroy(() => connection?.stop())
+  onDestroy(() => {
+    connection?.stop()
+    stopWatch?.()
+  })
 </script>
 
 {#if !gateReady || (joinCode && !authReady)}
@@ -120,6 +178,15 @@
       <button class="primary" type="button" on:click={dismissEnded}>Back to lobby</button>
     </section>
   </main>
+{:else if watchingID}
+  <GameTable
+    watching
+    snapshot={watchSnapshot}
+    session={{ matchID: watchingID, playerID: '', credentials: '', playerName: '' }}
+    connection={null}
+    onLeave={leaveWatch}
+    onClosed={endWatch}
+  />
 {:else if session && connection}
   <GameTable {session} {connection} onLeave={leave} onClosed={closeTable} />
 {:else if joinCode}
@@ -129,7 +196,10 @@
     onJoined={sitDown}
     onBack={leaveJoinPage}
     onEnded={linkEnded}
+    onWatch={() => {
+      if (joinCode) beginWatch(joinCode)
+    }}
   />
 {:else}
-  <Lobby {user} onUser={(next) => (user = next)} onJoined={sitDown} />
+  <Lobby {user} onUser={(next) => (user = next)} onJoined={sitDown} onWatch={beginWatch} />
 {/if}
