@@ -289,6 +289,20 @@
     </div>
   </header>
 
+  <aside class="beta-notice" aria-label="Beta feedback">
+    <p class="beta-badge">Beta</p>
+    <div class="beta-copy">
+      <strong>Still early — your feedback matters.</strong>
+      <p>Found a bug or want a feature? Tell me on WhatsApp.</p>
+    </div>
+    <a
+      class="beta-whatsapp"
+      href={`https://wa.me/${config.feedback.whatsappDigits}`}
+      target="_blank"
+      rel="noopener noreferrer"
+    >WhatsApp {config.feedback.whatsapp}</a>
+  </aside>
+
   <section class="hero-card">
     <span class="mini-card red">A♥</span>
     <div>

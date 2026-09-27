@@ -24,6 +24,13 @@ export const config = {
     defaultTakeRequiresPermission: false,
   },
 
+  /** Public beta feedback channel shown on the lobby. */
+  feedback: {
+    whatsapp: '+923034830003',
+    /** Digits only — used in the wa.me deep link. */
+    whatsappDigits: '923034830003',
+  },
+
   shuffle: {
     minScale: 1,
     maxScale: 10,
