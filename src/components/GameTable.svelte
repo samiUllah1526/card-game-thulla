@@ -22,7 +22,6 @@
   import { tallyLeaderboard, type MatchLeaderboard } from '../multiplayer/leaderboard'
   import { formatLocalDateTime, toUtcIso } from '../lib/time'
   import { legalCards } from '../games/bhabhi-thulla/rules'
-  import { formatShuffleReport } from '../games/bhabhi-thulla/shuffle'
   import { peekLog } from '../games/bhabhi-thulla/peekLog'
   import TableChat from './TableChat.svelte'
   import PeekGate from './PeekGate.svelte'
@@ -203,7 +202,9 @@
         if (dealCount > 0) void loadScoreboard(G.dealHistory)
       }
     }
+    const previousCount = state?.G?.seatCount
     state = value
+    if (G && G.seatCount !== previousCount) void refreshSeats()
   })
     : () => {}
 
@@ -345,7 +346,9 @@
   // ---- Helpers -----------------------------------------------------------
   async function refreshSeats() {
     try {
-      seats = await getSeats(session.matchID)
+      const count = state?.G?.seatCount ?? config.game.maxPlayers
+      const all = await getSeats(session.matchID)
+      seats = all.filter((seat) => seat.id < count)
     } catch {
       // The socket may still be connected during a short lobby API interruption.
     }
@@ -490,7 +493,11 @@
     canAct: boolean,
   ): string {
     if (G.phase === 'finished') return `${nameFor(G.bhabhi!)} is Bhabhi`
-    if (!G.started) return session.playerID === G.hostID ? 'Start when everyone has joined' : 'Waiting for the host'
+    if (!G.started) {
+      return session.playerID === G.hostID
+        ? 'Start once 3 players have sat'
+        : 'Waiting for the host'
+    }
     if (pendingPickup) {
       return pendingPickup.receiver === session.playerID
         ? `You picked up ${pendingPickup.cards.length} cards — tap Continue`
@@ -734,26 +741,7 @@
       <section class="waiting-card">
         <button type="button" class="pulse secret-tap" on:click={() => peekGate?.tap()} aria-hidden="true">♠</button>
         <h1>Players are joining</h1>
-        <p>Share the game code or link with friends. The game can start when every chosen seat is filled.</p>
-        {#if G.shuffleReport}
-          <div class="shuffle-report" class:stacked={G.shuffleReport.verdict === 'stacked'} class:random={G.shuffleReport.verdict === 'random' || G.shuffleReport.verdict === 'well'}>
-            <p class="shuffle-kicker">Deck shuffle</p>
-            <strong>{formatShuffleReport(G.shuffleReport)}</strong>
-            <p>
-              {#if G.shuffleReport.verdict === 'stacked'}
-                Cards are still nearly in order — expect long suit runs.
-              {:else if G.shuffleReport.verdict === 'light'}
-                Light mix — some suit clumps remain.
-              {:else if G.shuffleReport.verdict === 'mixed'}
-                Cards are somewhat mixed; a few suit clumps remain.
-              {:else if G.shuffleReport.verdict === 'well'}
-                Well shuffled — suits are spread out.
-              {:else}
-                Fully mixed deck.
-              {/if}
-            </p>
-          </div>
-        {/if}
+        <p>Share the game code or link. Start once 3 people have sat. Empty seats stay out of the deal.</p>
         {#if G.takeRequiresPermission}
           <p class="house-rule">House rule: takes need permission</p>
         {/if}
@@ -769,9 +757,12 @@
         {#if session.playerID === G.hostID}
           <button
             class="primary"
-            disabled={seats.length < config.game.minPlayers || seats.some((seat) => !seat.name)}
+            disabled={seats.filter((seat) => seat.name).length < config.game.minPlayers}
             on:click={live!.moves.startGame}
           >Start game</button>
+          {#if (G.seatCount ?? config.game.maxPlayers) < config.game.maxPlayers}
+            <button class="secondary" type="button" on:click={() => live!.moves.addSeat()}>Add a seat</button>
+          {/if}
         {:else}
           <div class="waiting-pill">Waiting for the host to start…</div>
         {/if}

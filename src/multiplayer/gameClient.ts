@@ -21,6 +21,8 @@ export interface GameConnection {
   deleteChat: (id: string) => void
   moves: {
     startGame: () => void
+    addSeat: () => void
+    markSeated: () => void
     playAgain: () => void
     takeLeftHand: () => void
     playCard: (cardID: string) => void
@@ -95,7 +97,19 @@ export function connectGame(session: Session): GameConnection {
 
   void reloadChat()
 
+  let markedSeat = false
   const unsubscribe = client.subscribe((nextState) => {
+    const snap = nextState as GameSnapshot | null
+    if (
+      !markedSeat &&
+      snap?.isConnected &&
+      snap.G &&
+      !snap.G.started &&
+      !snap.G.seated?.[session.playerID]
+    ) {
+      markedSeat = true
+      client.moves.markSeated()
+    }
     state.set(nextState as GameSnapshot | null)
     const phase = (nextState as GameSnapshot | null)?.G?.phase
     if (phase === 'finished') {
@@ -145,6 +159,8 @@ export function connectGame(session: Session): GameConnection {
     },
     moves: {
       startGame: () => client.moves.startGame(),
+      addSeat: () => client.moves.addSeat(),
+      markSeated: () => client.moves.markSeated(),
       playAgain: () => client.moves.playAgain(),
       takeLeftHand: () => client.moves.takeLeftHand(),
       playCard: (cardID) => client.moves.playCard(cardID),

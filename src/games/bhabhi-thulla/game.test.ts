@@ -1,6 +1,6 @@
 import { INVALID_MOVE } from 'boardgame.io/core'
 import { describe, expect, it } from 'vitest'
-import { createDealtState, BhabhiThulla } from './game'
+import { createDealtState, createWaitingState, BhabhiThulla } from './game'
 import { finishIfNeeded, hasAceOfSpades } from './rules'
 import type { BhabhiState, Card } from './types'
 
@@ -244,5 +244,76 @@ describe('leaveGame', () => {
     expect(G.hostID).toBe('1')
     expect(G.hands['0']).toEqual([])
     expect(G.active).toEqual(['1', '2'])
+  })
+})
+
+describe('flexible seats', () => {
+  function callMove(name: 'startGame' | 'addSeat' | 'markSeated', G: BhabhiState, playerID: string) {
+    const move = BhabhiThulla.moves?.[name]
+    if (!move) throw new Error(name)
+    const args = {
+      G,
+      playerID,
+      ctx: { numPlayers: 8 } as never,
+      random: seededRandom(),
+    }
+    if (typeof move === 'function') return move(args as never)
+    return move.move(args as never)
+  }
+
+  it('deals only the four players who sat at a six-seat table', () => {
+    const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 6 } })
+    expect(callMove('markSeated', G, '6')).toBe(INVALID_MOVE)
+    for (const id of ['0', '1', '2', '3']) {
+      expect(callMove('markSeated', G, id)).not.toBe(INVALID_MOVE)
+    }
+    expect(callMove('startGame', G, '0')).not.toBe(INVALID_MOVE)
+    expect(G.started).toBe(true)
+    expect(G.active).toEqual(['0', '1', '2', '3'])
+    expect(G.dealtSeats).toEqual(['0', '1', '2', '3'])
+    expect(G.hands['4']).toEqual([])
+    expect(G.hands['5']).toEqual([])
+    expect(Object.values(G.hands).flat()).toHaveLength(52)
+  })
+
+  it('rejects a start when only two people have sat', () => {
+    const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 4 } })
+    callMove('markSeated', G, '0')
+    callMove('markSeated', G, '1')
+    expect(callMove('startGame', G, '0')).toBe(INVALID_MOVE)
+    expect(G.started).toBe(false)
+  })
+
+  it('adds one seat and stops at eight', () => {
+    const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 7 } })
+    expect(callMove('addSeat', G, '1')).toBe(INVALID_MOVE)
+    expect(callMove('addSeat', G, '0')).not.toBe(INVALID_MOVE)
+    expect(G.seatCount).toBe(8)
+    expect(callMove('addSeat', G, '0')).toBe(INVALID_MOVE)
+    expect(G.seatCount).toBe(8)
+  })
+
+  it('rejects adding or marking a seat after the deal starts', () => {
+    const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 4 } })
+    for (const id of ['0', '1', '2']) callMove('markSeated', G, id)
+    expect(callMove('startGame', G, '0')).not.toBe(INVALID_MOVE)
+    expect(callMove('addSeat', G, '0')).toBe(INVALID_MOVE)
+    expect(callMove('markSeated', G, '3')).toBe(INVALID_MOVE)
+    expect(G.seatCount).toBe(4)
+    expect(G.seated?.['3']).toBeUndefined()
+  })
+
+  it('does not deal an empty seat again on play again', () => {
+    const G = createWaitingState({ numPlayers: 8, setupData: { seatCount: 6 } })
+    for (const id of ['0', '1', '2', '3']) callMove('markSeated', G, id)
+    expect(callMove('startGame', G, '0')).not.toBe(INVALID_MOVE)
+    G.phase = 'finished'
+    G.turnPlayer = '0'
+    expect(callPlayAgain(G, '0', 8)).not.toBe(INVALID_MOVE)
+    expect(G.active).toEqual(['0', '1', '2', '3'])
+    expect(G.hands['4']).toEqual([])
+    expect(G.hands['5']).toEqual([])
+    expect(G.hands['6']).toEqual([])
+    expect(Object.values(G.hands).flat()).toHaveLength(52)
   })
 })

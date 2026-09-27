@@ -236,7 +236,7 @@ describe('AppStore auth, chat, and deals', () => {
     expect(() => app.closeMatch('m1', '1')).toThrow(/host/i)
     app.closeMatch('m1', '0')
     expect(app.isClosed('m1')).toBe(true)
-    expect(app.matchGate('m1')).toEqual({ closed: true, started: true })
+    expect(app.matchGate('m1')).toEqual({ closed: true, started: true, seatCount: 8 })
   })
 
   it('shows a spectator the public table only', () => {

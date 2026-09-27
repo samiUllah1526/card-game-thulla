@@ -36,6 +36,65 @@ export interface CreateDealtOpts {
   hostID?: string
   /** When true, skip waiting and start the new deal immediately. */
   autoStart?: boolean
+  /** Deal only these seats. Other slots stay empty. */
+  seats?: string[]
+  seatCount?: number
+  seated?: Record<string, boolean>
+}
+
+export function clampSeatCount(value: number | undefined): number {
+  const rounded = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : config.game.minPlayers
+  return Math.min(config.game.maxPlayers, Math.max(config.game.minPlayers, rounded))
+}
+
+export function markedSeats(G: BhabhiState): string[] {
+  const limit = G.seatCount ?? config.game.maxPlayers
+  return Object.entries(G.seated ?? {})
+    .filter(([id, on]) => on && Number(id) < limit)
+    .map(([id]) => id)
+    .sort((a, b) => Number(a) - Number(b))
+}
+
+/** Lobby before anyone is dealt. Cards are shuffled when the host starts. */
+export function createWaitingState(opts: { numPlayers: number; setupData?: SetupData }): BhabhiState {
+  const seatCount = clampSeatCount(opts.setupData?.seatCount)
+  const allSeats = Array.from({ length: opts.numPlayers }, (_, index) => String(index))
+  const hands = Object.fromEntries(allSeats.map((id) => [id, [] as BhabhiState['hands'][string]]))
+  const options = {
+    algorithm: opts.setupData?.shuffleAlgorithm,
+    scale: opts.setupData?.shuffleScale,
+  }
+  const deck = orderedDeck()
+  return {
+    hands,
+    handCounts: Object.fromEntries(allSeats.map((id) => [id, 0])),
+    waste: [],
+    wasteCount: 0,
+    trick: [],
+    ledSuit: null,
+    pickupCount: 0,
+    trickCount: 0,
+    active: [],
+    gotAway: [],
+    left: [],
+    leader: '0',
+    turnPlayer: '0',
+    firstLeader: '0',
+    firstTrick: true,
+    started: false,
+    hostID: '0',
+    seatCount,
+    seated: {},
+    dealtSeats: [],
+    phase: 'waiting',
+    events: [{ id: 1, type: 'waiting' }],
+    shuffleReport: shuffleReport(deck, deck, options),
+    takeRequiresPermission:
+      opts.setupData?.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
+    takeCount: 0,
+    peekers: {},
+    dealHistory: [],
+  }
 }
 
 /** Shuffle, deal, and build a fresh table state (setup or rematch). */
@@ -49,7 +108,8 @@ export function createDealtState(opts: CreateDealtOpts): BhabhiState {
   const left = [...(opts.left ?? [])]
   const gone = new Set(left)
   const allSeats = Array.from({ length: opts.numPlayers }, (_, index) => String(index))
-  const seated = allSeats.filter((id) => !gone.has(id))
+  const group = opts.seats ?? allSeats
+  const seated = group.filter((id) => allSeats.includes(id) && !gone.has(id))
   const dealt = deal(shuffled, seated.length, seated)
   const hands = Object.fromEntries(allSeats.map((id) => [id, dealt[id] ?? []]))
   const firstLeader = seated.find((id) => hasAceOfSpades(hands[id])) ?? seated[0] ?? '0'
@@ -77,6 +137,9 @@ export function createDealtState(opts: CreateDealtOpts): BhabhiState {
     firstTrick: true,
     started: autoStart,
     hostID,
+    seatCount: opts.seatCount ?? opts.numPlayers,
+    seated: opts.seated ?? Object.fromEntries(seated.map((id) => [id, true])),
+    dealtSeats: group,
     phase: autoStart ? 'preTrick' : 'waiting',
     events: autoStart
       ? [{ id: 1, type: 'firstLead', player: firstLeader }]
@@ -156,6 +219,18 @@ const leaveGame = {
   move: leaveSeat,
 }
 
+const markSeated = {
+  client: false as const,
+  noLimit: true,
+  ignoreStaleStateID: true,
+  move: ({ G, playerID }: { G: BhabhiState; playerID: string }) => {
+    if (!playerID || G.started) return INVALID_MOVE
+    const limit = G.seatCount ?? config.game.maxPlayers
+    if (Number(playerID) >= limit) return INVALID_MOVE
+    G.seated = { ...(G.seated ?? {}), [playerID]: true }
+  },
+}
+
 function canStartTake(G: BhabhiState, playerID: string): boolean {
   return (
     G.started &&
@@ -173,20 +248,52 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
   maxPlayers: config.game.maxPlayers,
   disableUndo: true,
 
-  setup: ({ ctx, random }, setupData) =>
-    createDealtState({
+  setup: ({ ctx }, setupData) =>
+    createWaitingState({
       numPlayers: ctx.numPlayers,
-      random,
       setupData,
     }),
 
   moves: {
-    startGame: ({ G, playerID }) => {
+    /** Records this authenticated seat. Other players reach it from the leave stage. */
+    markSeated,
+
+    /** Host opens one more seat while people are still arriving. */
+    addSeat: ({ G, playerID }) => {
       if (G.started || playerID !== G.hostID) return INVALID_MOVE
-      G.started = true
-      G.phase = 'preTrick'
-      G.turnPlayer = G.firstLeader
-      addEvent(G, { type: 'firstLead', player: G.firstLeader })
+      const count = G.seatCount ?? config.game.minPlayers
+      if (count >= config.game.maxPlayers) return INVALID_MOVE
+      G.seatCount = count + 1
+    },
+
+    /**
+     * Host starts with whoever has sat. Server-only so the shuffle uses the
+     * server random. Empty seats are left out of the deal.
+     */
+    startGame: {
+      client: false,
+      move: ({ G, ctx, playerID, random }) => {
+        if (G.started || playerID !== G.hostID) return INVALID_MOVE
+        const playing = markedSeats(G)
+        if (playing.length < config.game.minPlayers) return INVALID_MOVE
+        const next = createDealtState({
+          numPlayers: ctx.numPlayers,
+          seats: playing,
+          random,
+          setupData: {
+            shuffleAlgorithm: G.shuffleReport.algorithm,
+            shuffleScale: G.shuffleReport.scale,
+            takeRequiresPermission: G.takeRequiresPermission,
+          },
+          dealHistory: G.dealHistory ?? [],
+          peekers: G.peekers,
+          hostID: G.hostID,
+          autoStart: true,
+          seatCount: G.seatCount,
+          seated: G.seated,
+        })
+        Object.assign(G, next)
+      },
     },
 
     /**
@@ -200,10 +307,15 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
         if (G.phase !== 'finished' || playerID !== G.hostID) return INVALID_MOVE
 
         const left = G.left ?? []
-        if (ctx.numPlayers - left.length < 2) return INVALID_MOVE
+        const group = G.dealtSeats?.length
+          ? G.dealtSeats
+          : Array.from({ length: ctx.numPlayers }, (_, index) => String(index))
+        const stillIn = group.filter((id) => !left.includes(id))
+        if (stillIn.length < 2) return INVALID_MOVE
 
         const next = createDealtState({
           numPlayers: ctx.numPlayers,
+          seats: group,
           random,
           setupData: {
             shuffleAlgorithm: G.shuffleReport.algorithm,
@@ -215,6 +327,8 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
           left,
           hostID: G.hostID,
           autoStart: true,
+          seatCount: G.seatCount,
+          seated: G.seated,
         })
 
         Object.assign(G, next)
@@ -331,7 +445,7 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
     activePlayers: { currentPlayer: Stage.NULL, others: 'leave' },
     stages: {
       leave: {
-        moves: { leaveGame },
+        moves: { leaveGame, markSeated },
       },
     },
     order: {

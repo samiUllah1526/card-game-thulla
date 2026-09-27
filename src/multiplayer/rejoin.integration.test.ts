@@ -79,7 +79,7 @@ describe('rejoin the link after a drop', () => {
     )
     const join = await fetch(`${url}/games/${config.game.name}/m1/join`, { method: 'POST' })
 
-    expect(gate).toEqual({ closed: false, started: false })
+    expect(gate).toEqual({ closed: false, started: false, seatCount: 8 })
     expect(watch.seats.some((seat) => !seat.name)).toBe(true)
     expect(join.status).toBe(200)
     expect(
@@ -103,7 +103,7 @@ describe('rejoin the link after a drop', () => {
     const join = await fetch(`${url}/games/${config.game.name}/m1/join`, { method: 'POST' })
     const reclaim = await fetch(`${url}/api/matches/m1/reclaim`, { method: 'POST' })
 
-    expect(gate).toEqual({ closed: false, started: true })
+    expect(gate).toEqual({ closed: false, started: true, seatCount: 8 })
     expect(watch.status).toBe(200)
     expect(join.status).toBe(403)
     expect(reclaim.status).toBe(401)

@@ -72,6 +72,7 @@ export interface ChatView {
 export interface MatchGate {
   closed: boolean
   started: boolean
+  seatCount: number
 }
 
 export async function fetchMatchChat(session: Session): Promise<ChatView> {
