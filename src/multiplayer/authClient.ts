@@ -39,6 +39,18 @@ export async function signup(
   return body.user
 }
 
+export async function fetchAuthProviders(): Promise<{ googleClientId: string | null }> {
+  return json<{ googleClientId: string | null }>('/auth/providers')
+}
+
+export async function loginWithGoogle(credential: string): Promise<PublicUser> {
+  const body = await json<{ user: PublicUser }>('/auth/google', {
+    method: 'POST',
+    body: JSON.stringify({ credential }),
+  })
+  return body.user
+}
+
 export async function login(email: string, password: string): Promise<PublicUser> {
   const body = await json<{ user: PublicUser }>('/auth/login', {
     method: 'POST',

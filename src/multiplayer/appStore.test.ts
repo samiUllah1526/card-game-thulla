@@ -66,6 +66,58 @@ describe('AppStore auth, chat, and deals', () => {
     expect(() => app.signup('ok@example.com', 'short', 'Ali')).toThrow(/password/i)
   })
 
+  it('signs in with Google and links a matching email', () => {
+    const app = open()
+    const created = app.loginWithGoogle({
+      sub: 'sub-1',
+      email: 'Ada@example.com',
+      name: 'Ada Lovelace',
+    })
+    expect(created.user).toMatchObject({ email: 'ada@example.com', displayName: 'Ada Lovelace' })
+    expect(app.userForToken(created.token)?.id).toBe(created.user.id)
+
+    const again = app.loginWithGoogle({
+      sub: 'sub-1',
+      email: 'ada@example.com',
+      name: 'Someone Else',
+    })
+    expect(again.user.id).toBe(created.user.id)
+    expect(again.user.displayName).toBe('Ada Lovelace')
+    expect(() => app.login('ada@example.com', 'secret123')).toThrow(/wrong/i)
+
+    const password = app.signup('bea@example.com', 'secret123', 'Bea')
+    const linked = app.loginWithGoogle({
+      sub: 'sub-bea',
+      email: 'Bea@example.com',
+      name: 'Beatrice',
+    })
+    expect(linked.user.id).toBe(password.user.id)
+    expect(linked.user.displayName).toBe('Bea')
+    expect(app.login('bea@example.com', 'secret123').user.id).toBe(password.user.id)
+
+    expect(() =>
+      app.loginWithGoogle({ sub: 'other-sub', email: 'bea@example.com', name: 'Nope' }),
+    ).toThrow(AppError)
+    try {
+      app.loginWithGoogle({ sub: 'other-sub', email: 'bea@example.com', name: 'Nope' })
+    } catch (reason) {
+      expect((reason as AppError).status).toBe(409)
+    }
+
+    const longName = app.loginWithGoogle({
+      sub: 'sub-long',
+      email: 'long@example.com',
+      name: 'A'.repeat(40),
+    })
+    expect(longName.user.displayName).toHaveLength(24)
+    const fromEmail = app.loginWithGoogle({
+      sub: 'sub-local',
+      email: 'cam-player@example.com',
+      name: '   ',
+    })
+    expect(fromEmail.user.displayName).toBe('cam-player')
+  })
+
   it('logout drops the session token', () => {
     const app = open()
     const { token } = app.signup('bea@example.com', 'secret123', 'Bea')

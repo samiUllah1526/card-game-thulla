@@ -4,6 +4,7 @@ import bodyParser from 'koa-bodyparser'
 import { config } from '../config'
 import { sanitizeChatText } from './chat'
 import { AppError, type AppStore } from './appStore'
+import { googleClientId, verifyGoogleCredential } from './googleAuth'
 import { subscribeWatch } from './watchHub'
 
 const COOKIE = config.auth.cookieName
@@ -44,6 +45,24 @@ export function createAppRouter(store: AppStore | null): Router {
     try {
       const body = jsonBody(ctx)
       const result = db.login(str(body.email), str(body.password))
+      ctx.cookies.set(COOKIE, result.token, cookieOpts)
+      ctx.body = { user: result.user }
+    } catch (reason) {
+      sendError(ctx, reason)
+    }
+  })
+
+  router.get('/auth/providers', (ctx) => {
+    ctx.body = { googleClientId: googleClientId() }
+  })
+
+  router.post('/auth/google', async (ctx) => {
+    const db = needStore(ctx)
+    if (!db) return
+    try {
+      const body = jsonBody(ctx)
+      const profile = await verifyGoogleCredential(str(body.credential))
+      const result = db.loginWithGoogle(profile)
       ctx.cookies.set(COOKIE, result.token, cookieOpts)
       ctx.body = { user: result.user }
     } catch (reason) {

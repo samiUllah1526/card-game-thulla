@@ -63,6 +63,54 @@ export class AppStore {
     }
   }
 
+  loginWithGoogle(profile: { sub: string; email: string; name: string }): {
+    user: PublicUser
+    token: string
+  } {
+    const sub = profile.sub.trim()
+    if (!sub) throw new AppError('Google account is missing an id.', 400)
+    const cleanEmail = normalizeEmail(profile.email)
+    const bySub = this.userByGoogleSub(sub)
+    if (bySub) return { user: bySub, token: this.createSession(bySub.id) }
+
+    const byEmail = this.userByEmail(cleanEmail)
+    if (byEmail) {
+      if (byEmail.googleSub && byEmail.googleSub !== sub) {
+        throw new AppError('That email is already linked to a different Google account.', 409)
+      }
+      if (!byEmail.googleSub) {
+        this.db.prepare(`UPDATE users SET google_sub = ? WHERE id = ?`).run(sub, byEmail.id)
+      }
+      const user: PublicUser = {
+        id: byEmail.id,
+        email: byEmail.email,
+        displayName: byEmail.displayName,
+      }
+      return { user, token: this.createSession(user.id) }
+    }
+
+    const name = googleDisplayName(profile.name, cleanEmail)
+    const hash = hashPassword(randomBytes(32).toString('hex'))
+    const now = utcNowMs()
+    try {
+      const result = this.db
+        .prepare(
+          `INSERT INTO users (email, password_hash, display_name, created_at, google_sub)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(cleanEmail, hash, name, now, sub)
+      const user: PublicUser = {
+        id: Number(result.lastInsertRowid),
+        email: cleanEmail,
+        displayName: name,
+      }
+      return { user, token: this.createSession(user.id) }
+    } catch (reason) {
+      if (isUniqueError(reason)) throw new AppError('That email is already registered.', 409)
+      throw reason
+    }
+  }
+
   userForToken(token: string | undefined): PublicUser | null {
     if (!token) return null
     const row = this.db
@@ -441,6 +489,28 @@ export class AppStore {
     }
   }
 
+  private userByGoogleSub(sub: string): PublicUser | null {
+    const row = this.db
+      .prepare(`SELECT id, email, display_name FROM users WHERE google_sub = ?`)
+      .get(sub) as { id: number; email: string; display_name: string } | undefined
+    return row ? { id: row.id, email: row.email, displayName: row.display_name } : null
+  }
+
+  private userByEmail(email: string): (PublicUser & { googleSub: string | null }) | null {
+    const row = this.db
+      .prepare(`SELECT id, email, display_name, google_sub FROM users WHERE email = ?`)
+      .get(email) as
+      | { id: number; email: string; display_name: string; google_sub: string | null }
+      | undefined
+    if (!row) return null
+    return {
+      id: row.id,
+      email: row.email,
+      displayName: row.display_name,
+      googleSub: row.google_sub,
+    }
+  }
+
   private createSession(userID: number): string {
     const token = randomBytes(24).toString('base64url')
     const expiresAt = utcNowMs() + config.auth.sessionDays * 24 * 60 * 60 * 1000
@@ -478,6 +548,19 @@ export function normalizeEmail(email: string): string {
     throw new AppError('Enter a valid email.', 400)
   }
   return value
+}
+
+function googleDisplayName(name: string, email: string): string {
+  const collapsed = name.replace(/\s+/g, ' ').trim()
+  if (collapsed.length >= 1 && collapsed.length <= config.auth.maxDisplayName) return collapsed
+  if (collapsed.length > config.auth.maxDisplayName) {
+    const trimmed = collapsed.slice(0, config.auth.maxDisplayName).trim()
+    if (trimmed) return trimmed
+  }
+  const local = email.split('@')[0] ?? ''
+  if (local.length >= 1 && local.length <= config.auth.maxDisplayName) return local
+  if (local.length > config.auth.maxDisplayName) return local.slice(0, config.auth.maxDisplayName)
+  return 'Player'
 }
 
 export function normalizeDisplayName(name: string): string {
