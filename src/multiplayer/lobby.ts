@@ -1,6 +1,8 @@
-import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
+import { config } from '../config'
+import type { LobbySeat, Session, SetupData } from '../games/bhabhi-thulla/types'
 
-const GAME = 'bhabhi-thulla'
+const GAME = config.game.name
+const SESSION_KEY = config.storage.sessionKey
 
 interface MatchResponse {
   matchID: string
@@ -20,10 +22,19 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 export async function createMatch(
   playerName: string,
   numPlayers: number,
+  setupData: SetupData = {},
 ): Promise<Session> {
   const created = await json<{ matchID: string }>(`/games/${GAME}/create`, {
     method: 'POST',
-    body: JSON.stringify({ numPlayers }),
+    body: JSON.stringify({
+      numPlayers,
+      setupData: {
+        shuffleAlgorithm: setupData.shuffleAlgorithm ?? config.shuffle.defaultAlgorithm,
+        shuffleScale: setupData.shuffleScale ?? config.shuffle.defaultScale,
+        takeRequiresPermission:
+          setupData.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
+      },
+    }),
   })
   return joinMatch(created.matchID, '0', playerName)
 }
@@ -54,17 +65,17 @@ export async function getSeats(matchID: string): Promise<LobbySeat[]> {
 }
 
 export function saveSession(session: Session): void {
-  localStorage.setItem('bhabhi-session', JSON.stringify(session))
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
 }
 
 export function loadSession(): Session | null {
   try {
-    return JSON.parse(localStorage.getItem('bhabhi-session') ?? 'null')
+    return JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null')
   } catch {
     return null
   }
 }
 
 export function clearSession(): void {
-  localStorage.removeItem('bhabhi-session')
+  localStorage.removeItem(SESSION_KEY)
 }
