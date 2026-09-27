@@ -37,6 +37,7 @@
   let createError = ''
   let joinError = ''
   let watchable = false
+  let openSeatCount: number = config.game.maxPlayers
   let authMode: 'signin' | 'signup' = 'signin'
   let authEmail = ''
   let authPassword = ''
@@ -95,13 +96,14 @@
           // This account has no seat on the table.
         }
       }
+      openSeatCount = gate.seatCount || config.game.maxPlayers
       if (gate.started) {
         watchable = true
         joinError = 'This game has already started.'
         return
       }
       watchable = true
-      seats = await getSeats(id)
+      seats = (await getSeats(id)).filter((seat) => seat.id < openSeatCount)
       selectedSeat = String(seats.find((seat) => !seat.name)?.id ?? '')
       if (!selectedSeat) joinError = 'This game is full.'
     } catch (reason) {
@@ -298,13 +300,14 @@
         />
       </label>
       <label>
-        <span>Number of seats</span>
+        <span>Starting seats</span>
         <select bind:value={playerCount}>
           {#each seatOptions as count}
             <option value={count}>{count} players</option>
           {/each}
         </select>
       </label>
+      <p class="join-hint">Add a seat later, or start once 3 people have sat.</p>
       <label>
         <span>Shuffle method</span>
         <select bind:value={shuffleAlgorithm}>

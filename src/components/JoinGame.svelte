@@ -27,6 +27,7 @@
   let missing = false
   let started = false
   let checked = false
+  let seatCount: number = config.game.maxPlayers
   let reclaimAttempted = false
   let poll: number | undefined
 
@@ -59,6 +60,7 @@
           // This account has no seat on the table.
         }
       }
+      seatCount = gate.seatCount || config.game.maxPlayers
       if (gate.started) {
         started = true
         seats = []
@@ -66,7 +68,7 @@
         return
       }
       started = false
-      seats = await getSeats(code)
+      seats = (await getSeats(code)).filter((seat) => seat.id < seatCount)
       missing = false
       if (error === 'That table was not found.') error = ''
     } catch {

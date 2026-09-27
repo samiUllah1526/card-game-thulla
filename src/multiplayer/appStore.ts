@@ -295,15 +295,22 @@ export class AppStore {
     }
   }
 
-  matchGate(matchID: string): { closed: boolean; started: boolean } {
+  matchGate(matchID: string): { closed: boolean; started: boolean; seatCount: number } {
     const game = this.matchGame(matchID)
-    return { closed: this.isClosed(matchID), started: !!game?.started }
+    return {
+      closed: this.isClosed(matchID),
+      started: !!game?.started,
+      seatCount: game?.seatCount ?? config.game.maxPlayers,
+    }
   }
 
-  /** Why a new player cannot take a seat, or null while the lobby is open. */
-  joinBlock(matchID: string): 'closed' | 'started' | null {
+  /** Why a new player cannot take a seat, or null while that seat is open. */
+  joinBlock(matchID: string, playerID?: number): 'closed' | 'started' | 'unopened' | null {
     if (this.isClosed(matchID)) return 'closed'
-    if (this.matchGame(matchID)?.started) return 'started'
+    const game = this.matchGame(matchID)
+    if (game?.started) return 'started'
+    const seatCount = game?.seatCount ?? config.game.maxPlayers
+    if (playerID != null && playerID >= seatCount) return 'unopened'
     return null
   }
 
@@ -474,6 +481,7 @@ export class AppStore {
     started?: boolean
     hostID?: string
     left?: string[]
+    seatCount?: number
   } | null {
     const row = this.db.prepare(`SELECT state FROM matches WHERE id = ?`).get(matchID) as
       | { state: string | null }
@@ -481,7 +489,7 @@ export class AppStore {
     if (!row?.state) return null
     try {
       const state = JSON.parse(row.state) as {
-        G?: { phase?: string; started?: boolean; hostID?: string; left?: string[] }
+        G?: { phase?: string; started?: boolean; hostID?: string; left?: string[]; seatCount?: number }
       }
       return state.G ?? null
     } catch {
@@ -535,10 +543,14 @@ export class AppStore {
   private seatList(matchID: string): LobbySeat[] {
     const metadata = this.matchMetadata(matchID)
     if (!metadata?.players) return []
-    return Object.values(metadata.players).map((player) => ({
-      id: player.id,
-      name: player.name,
-    }))
+    const count = this.matchGame(matchID)?.seatCount
+    return Object.values(metadata.players)
+      .map((player) => ({
+        id: player.id,
+        name: player.name,
+      }))
+      .filter((seat) => count == null || seat.id < count)
+      .sort((a, b) => a.id - b.id)
   }
 }
 

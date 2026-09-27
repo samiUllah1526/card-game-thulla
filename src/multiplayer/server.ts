@@ -1,5 +1,7 @@
 import { Server } from 'boardgame.io/server'
+import type { IncomingMessage } from 'node:http'
 import { randomBytes } from 'node:crypto'
+import { Readable } from 'node:stream'
 import { config } from '../config'
 import { BhabhiThulla } from '../games/bhabhi-thulla/game'
 import { setPeekPasswordResolver } from '../games/bhabhi-thulla/peek'
@@ -37,16 +39,52 @@ if (appStore) {
       await next()
       return
     }
-    const block = appStore.joinBlock(decodeURIComponent(match[1]))
+    const rawBody = await readRequestBody(ctx.req)
+    ctx.req = replayRequestBody(ctx.req, rawBody)
+    const playerID = playerIDFromBody(rawBody)
+    const block = appStore.joinBlock(decodeURIComponent(match[1]), playerID)
     if (!block) {
       await next()
       return
     }
     ctx.status = block === 'closed' ? 410 : 403
     ctx.body = {
-      error: block === 'closed' ? 'This table has ended.' : 'This game has already started.',
+      error:
+        block === 'closed'
+          ? 'This table has ended.'
+          : block === 'unopened'
+            ? 'That seat is not open.'
+            : 'This game has already started.',
     }
   })
+}
+
+async function readRequestBody(req: IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
+}
+
+/** Put the bytes back so boardgame.io's own parser can read the same request. */
+function replayRequestBody(req: IncomingMessage, raw: Buffer): IncomingMessage {
+  const replay = Readable.from(raw) as IncomingMessage
+  replay.headers = req.headers
+  replay.method = req.method
+  replay.url = req.url
+  return replay
+}
+
+function playerIDFromBody(raw: Buffer): number | undefined {
+  if (!raw.length) return undefined
+  try {
+    const parsed = JSON.parse(raw.toString('utf8')) as { playerID?: unknown }
+    const playerID = Number(parsed.playerID)
+    return Number.isFinite(playerID) ? playerID : undefined
+  } catch {
+    return undefined
+  }
 }
 server.app.use(createAppRouter(appStore).routes())
 

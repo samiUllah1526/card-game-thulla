@@ -84,6 +84,8 @@ export interface SetupData {
   shuffleAlgorithm?: string
   shuffleScale?: number
   takeRequiresPermission?: boolean
+  /** How many seats to open when the table is created. */
+  seatCount?: number
 }
 
 export interface ShuffleReport {
@@ -126,6 +128,12 @@ export interface BhabhiState {
   firstTrick: boolean
   started: boolean
   hostID: string
+  /** Seats the lobby is offering. Slots past this stay hidden. */
+  seatCount?: number
+  /** Seats that have sat down while the lobby is open. */
+  seated?: Record<string, boolean>
+  /** Seats dealt at Start. Play again uses this list. */
+  dealtSeats?: string[]
   phase: 'waiting' | 'preTrick' | 'follow' | 'finished'
   events: GameEvent[]
   shuffleReport: ShuffleReport

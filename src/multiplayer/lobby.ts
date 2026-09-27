@@ -27,12 +27,13 @@ export async function createMatch(
   const created = await json<{ matchID: string }>(`/games/${GAME}/create`, {
     method: 'POST',
     body: JSON.stringify({
-      numPlayers,
+      numPlayers: config.game.maxPlayers,
       setupData: {
         shuffleAlgorithm: setupData.shuffleAlgorithm ?? config.shuffle.defaultAlgorithm,
         shuffleScale: setupData.shuffleScale ?? config.shuffle.defaultScale,
         takeRequiresPermission:
           setupData.takeRequiresPermission ?? config.game.defaultTakeRequiresPermission,
+        seatCount: numPlayers,
       },
     }),
   })
