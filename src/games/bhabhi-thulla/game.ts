@@ -1,4 +1,4 @@
-import { INVALID_MOVE } from 'boardgame.io/core'
+import { INVALID_MOVE, Stage } from 'boardgame.io/core'
 import type { Game } from 'boardgame.io'
 import { config } from '../../config'
 import {
@@ -7,6 +7,7 @@ import {
   deal,
   executeTake,
   finishIfNeeded,
+  forfeitPlayer,
   hasAceOfSpades,
   isLegalPlay,
   nextActive,
@@ -29,6 +30,10 @@ export interface CreateDealtOpts {
   /** Carry-over across Play again. */
   dealHistory?: DealResult[]
   peekers?: Record<string, boolean>
+  /** Seats that forfeited earlier on this match. They are not dealt. */
+  left?: string[]
+  /** Host after a forfeit. Falls back to the first seat still at the table. */
+  hostID?: string
   /** When true, skip waiting and start the new deal immediately. */
   autoStart?: boolean
 }
@@ -41,9 +46,14 @@ export function createDealtState(opts: CreateDealtOpts): BhabhiState {
   }
   const original = orderedDeck()
   const shuffled = shuffleDeck(original, options, opts.random)
-  const hands = deal(shuffled, opts.numPlayers)
-  const firstLeader =
-    Object.entries(hands).find(([, hand]) => hasAceOfSpades(hand))?.[0] ?? '0'
+  const left = [...(opts.left ?? [])]
+  const gone = new Set(left)
+  const allSeats = Array.from({ length: opts.numPlayers }, (_, index) => String(index))
+  const seated = allSeats.filter((id) => !gone.has(id))
+  const dealt = deal(shuffled, seated.length, seated)
+  const hands = Object.fromEntries(allSeats.map((id) => [id, dealt[id] ?? []]))
+  const firstLeader = seated.find((id) => hasAceOfSpades(hands[id])) ?? seated[0] ?? '0'
+  const hostID = opts.hostID && seated.includes(opts.hostID) ? opts.hostID : (seated[0] ?? '0')
   const handCounts = Object.fromEntries(
     Object.entries(hands).map(([id, hand]) => [id, hand.length]),
   )
@@ -58,14 +68,15 @@ export function createDealtState(opts: CreateDealtOpts): BhabhiState {
     ledSuit: null,
     pickupCount: 0,
     trickCount: 0,
-    active: Array.from({ length: opts.numPlayers }, (_, index) => String(index)),
+    active: seated,
     gotAway: [],
+    left,
     leader: firstLeader,
-    turnPlayer: autoStart ? firstLeader : '0',
+    turnPlayer: autoStart ? firstLeader : hostID,
     firstLeader,
     firstTrick: true,
     started: autoStart,
-    hostID: '0',
+    hostID,
     phase: autoStart ? 'preTrick' : 'waiting',
     events: autoStart
       ? [{ id: 1, type: 'firstLead', player: firstLeader }]
@@ -129,6 +140,22 @@ function playCard(
   G.turnPlayer = nextActive(remaining, playerID)
 }
 
+function leaveSeat(
+  { G, playerID, events }: { G: BhabhiState; playerID: string; events: { endTurn: () => void } },
+) {
+  if (!playerID || !G.started || !(playerID in G.hands)) return INVALID_MOVE
+  if (G.left?.includes(playerID)) return INVALID_MOVE
+  const { endTurn } = forfeitPlayer(G, playerID)
+  if (endTurn) events.endTurn()
+}
+
+const leaveGame = {
+  client: false as const,
+  noLimit: true,
+  ignoreStaleStateID: true,
+  move: leaveSeat,
+}
+
 function canStartTake(G: BhabhiState, playerID: string): boolean {
   return (
     G.started &&
@@ -172,6 +199,9 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
       move: ({ G, ctx, playerID, random }) => {
         if (G.phase !== 'finished' || playerID !== G.hostID) return INVALID_MOVE
 
+        const left = G.left ?? []
+        if (ctx.numPlayers - left.length < 2) return INVALID_MOVE
+
         const next = createDealtState({
           numPlayers: ctx.numPlayers,
           random,
@@ -182,6 +212,8 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
           },
           dealHistory: G.dealHistory ?? [],
           peekers: G.peekers,
+          left,
+          hostID: G.hostID,
           autoStart: true,
         })
 
@@ -284,11 +316,24 @@ export const BhabhiThulla: Game<BhabhiState, Record<string, unknown>, SetupData>
     },
 
     playCard,
+
+    /**
+     * Any seated player can forfeit after the deal starts. Cards in hand are
+     * discarded. Does not spend the turn unless the leaver was the one to move.
+     * Non-current players reach the same move through the `leave` stage.
+     */
+    leaveGame,
   },
 
   turn: {
     minMoves: 1,
     maxMoves: 1,
+    activePlayers: { currentPlayer: Stage.NULL, others: 'leave' },
+    stages: {
+      leave: {
+        moves: { leaveGame },
+      },
+    },
     order: {
       first: () => 0,
       next: ({ G, ctx }) => {

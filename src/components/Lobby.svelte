@@ -1,7 +1,7 @@
 <script lang="ts">
   import { config } from '../config'
   import { createMatch, getSeats, joinMatch, saveSession } from '../multiplayer/lobby'
-  import { login, logout, signup } from '../multiplayer/authClient'
+  import { fetchMatchGate, login, logout, reclaimSeat, signup } from '../multiplayer/authClient'
   import type { PublicUser } from '../multiplayer/authTypes'
   import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
 
@@ -60,11 +60,33 @@
   }
 
   async function findGame() {
-    if (!matchID.trim()) return
+    const id = matchID.trim()
+    if (!id) return
     loading = true
     joinError = ''
+    seats = []
     try {
-      seats = await getSeats(matchID.trim())
+      const gate = await fetchMatchGate(id)
+      if (gate.closed) {
+        joinError = 'This table has ended.'
+        return
+      }
+      if (gate.started) {
+        if (user) {
+          try {
+            const session = await reclaimSeat(id)
+            saveSession(session)
+            onJoined(session)
+            return
+          } catch {
+            joinError = 'This game has already started.'
+            return
+          }
+        }
+        joinError = 'This game has already started.'
+        return
+      }
+      seats = await getSeats(id)
       selectedSeat = String(seats.find((seat) => !seat.name)?.id ?? '')
       if (!selectedSeat) joinError = 'This game is full.'
     } catch (reason) {

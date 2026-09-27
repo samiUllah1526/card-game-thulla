@@ -50,12 +50,58 @@ export async function logout(): Promise<void> {
   await json('/auth/logout', { method: 'POST' })
 }
 
-export async function fetchMatchChat(session: Session): Promise<TableChatMessage[]> {
-  const body = await json<{ messages: TableChatMessage[] }>(
+export interface ChatView {
+  messages: TableChatMessage[]
+  visibleAfter: number
+  open: boolean
+}
+
+export interface MatchGate {
+  closed: boolean
+  started: boolean
+}
+
+export async function fetchMatchChat(session: Session): Promise<ChatView> {
+  const body = await json<ChatView>(
     `/api/matches/${encodeURIComponent(session.matchID)}/chat`,
     { headers: seatHeaders(session) },
   )
-  return body.messages ?? []
+  return {
+    messages: body.messages ?? [],
+    visibleAfter: body.visibleAfter ?? 0,
+    open: body.open !== false,
+  }
+}
+
+export async function registerSeat(session: Session): Promise<void> {
+  await json(`/api/matches/${encodeURIComponent(session.matchID)}/seat`, {
+    method: 'POST',
+    headers: seatHeaders(session),
+  })
+}
+
+export async function fetchMatchGate(matchID: string): Promise<MatchGate> {
+  return json<MatchGate>(`/api/matches/${encodeURIComponent(matchID)}/gate`)
+}
+
+export async function reclaimSeat(matchID: string): Promise<Session> {
+  return json<Session>(`/api/matches/${encodeURIComponent(matchID)}/reclaim`, {
+    method: 'POST',
+  })
+}
+
+export async function closeMatch(session: Session): Promise<void> {
+  await json(`/api/matches/${encodeURIComponent(session.matchID)}/close`, {
+    method: 'POST',
+    headers: seatHeaders(session),
+  })
+}
+
+export async function departMatch(session: Session): Promise<{ closed: boolean }> {
+  return json<{ closed: boolean }>(`/api/matches/${encodeURIComponent(session.matchID)}/depart`, {
+    method: 'POST',
+    headers: seatHeaders(session),
+  })
 }
 
 export async function persistMatchChat(
@@ -71,6 +117,16 @@ export async function persistMatchChat(
     },
   )
   return body.message
+}
+
+export async function deleteMatchChat(session: Session, messageID: string): Promise<void> {
+  await json(
+    `/api/matches/${encodeURIComponent(session.matchID)}/chat/${encodeURIComponent(messageID)}`,
+    {
+      method: 'DELETE',
+      headers: seatHeaders(session),
+    },
+  )
 }
 
 export async function fetchMatchLeaderboard(session: Session): Promise<MatchLeaderboard> {

@@ -4,6 +4,7 @@ import {
   addEvent,
   createDeck,
   deal,
+  forfeitPlayer,
   highestLedSuit,
   isLegalPlay,
   legalCards,
@@ -137,5 +138,144 @@ describe('Bhabhi Thulla rules', () => {
     expect(nextActive(['0', '2', '4'], '0')).toBe('2')
     expect(nextActive(['0', '2', '4'], '4')).toBe('0')
     expect(nextActive(['0', '4'], '2')).toBe('4')
+  })
+})
+
+function liveTable(overrides: Partial<BhabhiState> = {}): BhabhiState {
+  const base = stateWithTrick()
+  return {
+    ...base,
+    hands: {
+      '0': [{ id: 'S-14', suit: 'S', rank: 14 }, { id: 'H-4', suit: 'H', rank: 4 }],
+      '1': [{ id: 'C-5', suit: 'C', rank: 5 }],
+      '2': [{ id: 'D-9', suit: 'D', rank: 9 }, { id: 'C-3', suit: 'C', rank: 3 }],
+    },
+    handCounts: { '0': 2, '1': 1, '2': 2 },
+    trick: [],
+    ledSuit: null,
+    waste: [],
+    wasteCount: 0,
+    phase: 'preTrick',
+    turnPlayer: '0',
+    leader: '0',
+    active: ['0', '1', '2'],
+    gotAway: [],
+    events: [],
+    ...overrides,
+  }
+}
+
+describe('forfeitPlayer', () => {
+  it('discards the hand, skips the turn, and does not count as got away', () => {
+    const state = liveTable()
+    expect(forfeitPlayer(state, '0')).toEqual({ endTurn: true })
+    expect(state.hands['0']).toEqual([])
+    expect(state.waste.map((card) => card.id)).toEqual(['S-14', 'H-4'])
+    expect(state.left).toEqual(['0'])
+    expect(state.gotAway).not.toContain('0')
+    expect(state.active).toEqual(['1', '2'])
+    expect(state.hostID).toBe('1')
+    expect(state.turnPlayer).toBe('1')
+    expect(state.leader).toBe('1')
+    expect(state.events.at(-1)).toMatchObject({ type: 'left', player: '0' })
+  })
+
+  it('finishes the deal when one player remains', () => {
+    const state = liveTable({
+      active: ['0', '1'],
+      gotAway: ['2'],
+      hands: {
+        '0': [{ id: 'S-14', suit: 'S', rank: 14 }],
+        '1': [{ id: 'C-5', suit: 'C', rank: 5 }],
+        '2': [],
+      },
+    })
+    forfeitPlayer(state, '0')
+    expect(state.phase).toBe('finished')
+    expect(state.bhabhi).toBe('1')
+    expect(state.waste.map((card) => card.id)).toEqual(['S-14'])
+    expect(state.gotAway).toEqual(['2'])
+    expect(state.left).toEqual(['0'])
+  })
+
+  it('keeps an in-progress trick going for the players still in it', () => {
+    const state = liveTable({
+      phase: 'follow',
+      ledSuit: 'S',
+      leader: '0',
+      turnPlayer: '1',
+      trick: [{ playerID: '0', card: { id: 'S-10', suit: 'S', rank: 10 } }],
+      hands: {
+        '0': [],
+        '1': [{ id: 'S-12', suit: 'S', rank: 12 }, { id: 'H-2', suit: 'H', rank: 2 }],
+        '2': [{ id: 'S-3', suit: 'S', rank: 3 }],
+      },
+    })
+    expect(forfeitPlayer(state, '1')).toEqual({ endTurn: true })
+    expect(state.trick.map((play) => play.card.id)).toEqual(['S-10'])
+    expect(state.turnPlayer).toBe('2')
+    expect(state.waste.map((card) => card.id)).toEqual(['S-12', 'H-2'])
+    expect(state.active).toEqual(['0', '2'])
+    expect(state.phase).toBe('follow')
+  })
+
+  it('resolves the trick when everyone still seated has played', () => {
+    const state = liveTable({
+      phase: 'follow',
+      ledSuit: 'S',
+      leader: '0',
+      turnPlayer: '2',
+      trick: [
+        { playerID: '0', card: { id: 'S-10', suit: 'S', rank: 10 } },
+        { playerID: '1', card: { id: 'S-12', suit: 'S', rank: 12 } },
+      ],
+      hands: {
+        '0': [],
+        '1': [],
+        '2': [{ id: 'D-9', suit: 'D', rank: 9 }],
+      },
+    })
+    forfeitPlayer(state, '2')
+    expect(state.trick).toEqual([])
+    expect(state.phase).toBe('preTrick')
+    expect(state.waste.map((card) => card.id)).toEqual(['D-9', 'S-10', 'S-12'])
+    expect(state.turnPlayer).toBe('1')
+  })
+
+  it('cancels a pending take and a pickup the leaver was stuck in', () => {
+    const state = liveTable({
+      turnPlayer: '1',
+      pendingTake: { id: 1, from: '0', to: '1' },
+      lastTakeReject: { id: 2, from: '0', to: '1', dismissed: false },
+      lastPickup: {
+        id: 1,
+        giver: '2',
+        receiver: '1',
+        ledSuit: 'S',
+        thullaCard: { id: 'H-3', suit: 'H', rank: 3 },
+        cards: [{ id: 'H-3', suit: 'H', rank: 3 }],
+        dismissed: false,
+      },
+      hands: {
+        '0': [{ id: 'S-14', suit: 'S', rank: 14 }],
+        '1': [{ id: 'H-3', suit: 'H', rank: 3 }, { id: 'S-10', suit: 'S', rank: 10 }],
+        '2': [{ id: 'D-9', suit: 'D', rank: 9 }],
+      },
+    })
+    forfeitPlayer(state, '1')
+    expect(state.pendingTake).toBeUndefined()
+    expect(state.lastPickup?.dismissed).toBe(true)
+    expect(state.lastTakeReject?.dismissed).toBe(false)
+    expect(state.waste.map((card) => card.id)).toEqual(['H-3', 'S-10'])
+    expect(state.turnPlayer).toBe('0')
+  })
+
+  it('dismisses a reject roast when the requester leaves', () => {
+    const state = liveTable({
+      turnPlayer: '0',
+      lastTakeReject: { id: 1, from: '0', to: '1', dismissed: false },
+    })
+    forfeitPlayer(state, '0')
+    expect(state.lastTakeReject?.dismissed).toBe(true)
   })
 })

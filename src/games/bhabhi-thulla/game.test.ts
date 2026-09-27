@@ -181,4 +181,68 @@ describe('playAgain', () => {
     expect(G.lastTrick).toBeUndefined()
     expect(hasAceOfSpades(G.hands[G.firstLeader])).toBe(true)
   })
+
+  it('does not deal a player who already left', () => {
+    const G = finishedState()
+    G.left = ['2']
+    expect(callPlayAgain(G, '0')).not.toBe(INVALID_MOVE)
+    expect(G.hands['2']).toEqual([])
+    expect(G.active).toEqual(['0', '1'])
+    expect(G.left).toEqual(['2'])
+    expect(Object.values(G.hands).flat()).toHaveLength(52)
+    expect(hasAceOfSpades(G.hands[G.firstLeader])).toBe(true)
+  })
+
+  it('refuses a rematch when fewer than two players remain', () => {
+    const G = finishedState()
+    G.left = ['1', '2']
+    expect(callPlayAgain(G, '0')).toBe(INVALID_MOVE)
+  })
+})
+
+describe('leaveGame', () => {
+  function callLeave(G: BhabhiState, playerID: string) {
+    const move = BhabhiThulla.moves?.leaveGame
+    if (!move || typeof move === 'function') throw new Error('leaveGame should be a long-form move')
+    let ended = false
+    const result = move.move({
+      G,
+      playerID,
+      events: { endTurn: () => { ended = true } },
+    } as never)
+    return { result, ended }
+  }
+
+  it('rejects a leave before the deal starts', () => {
+    const G = createDealtState({ numPlayers: 3, random: seededRandom() })
+    const hand = G.hands['1'].map((card) => card.id)
+    const { result, ended } = callLeave(G, '1')
+    expect(result).toBe(INVALID_MOVE)
+    expect(ended).toBe(false)
+    expect(G.hands['1'].map((card) => card.id)).toEqual(hand)
+  })
+
+  it('discards cards and ends the turn when the player to move leaves', () => {
+    const G = createDealtState({ numPlayers: 3, random: seededRandom(), autoStart: true })
+    const leaver = G.turnPlayer
+    const count = G.hands[leaver].length
+    const { result, ended } = callLeave(G, leaver)
+    expect(result).not.toBe(INVALID_MOVE)
+    expect(ended).toBe(true)
+    expect(G.hands[leaver]).toEqual([])
+    expect(G.waste).toHaveLength(count)
+    expect(G.left).toContain(leaver)
+    expect(G.gotAway).not.toContain(leaver)
+  })
+
+  it('lets the new host deal again without the player who left', () => {
+    const G = finishedState()
+    G.left = ['0']
+    G.hostID = '1'
+    expect(callPlayAgain(G, '0')).toBe(INVALID_MOVE)
+    expect(callPlayAgain(G, '1')).not.toBe(INVALID_MOVE)
+    expect(G.hostID).toBe('1')
+    expect(G.hands['0']).toEqual([])
+    expect(G.active).toEqual(['1', '2'])
+  })
 })

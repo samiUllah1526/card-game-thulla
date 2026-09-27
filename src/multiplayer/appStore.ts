@@ -100,8 +100,14 @@ export class AppStore {
     text: string
     at?: number
   }): TableChatMessage {
+    if (this.isClosed(input.matchID)) throw new AppError('This table has ended.', 410)
+    if (this.matchGame(input.matchID)?.phase === 'finished') {
+      throw new AppError('Chat is closed for this deal.', 403)
+    }
     const id = input.id?.trim() || randomBytes(8).toString('base64url')
-    const at = input.at && Number.isFinite(input.at) ? input.at : utcNowMs()
+    const joinedAt = this.joinedAt(input.matchID, input.senderSeat)
+    const requested = input.at && Number.isFinite(input.at) ? input.at : utcNowMs()
+    const at = Math.max(requested, joinedAt)
     this.db
       .prepare(
         `INSERT INTO chat_messages (id, match_id, sender_seat, user_id, text, at)
@@ -120,17 +126,55 @@ export class AppStore {
   }
 
   listChat(matchID: string, cap = config.chat.historyCap): TableChatMessage[] {
-    const rows = this.db
+    return this.chatRows(matchID, 0, cap)
+  }
+
+  /**
+   * Messages this seat is allowed to see. Closed tables throw.
+   * A finished deal returns nothing until Play again opens a new window.
+   */
+  chatView(matchID: string, playerID: string): {
+    messages: TableChatMessage[]
+    visibleAfter: number
+    open: boolean
+  } {
+    if (this.isClosed(matchID)) throw new AppError('This table has ended.', 410)
+    const game = this.matchGame(matchID)
+    const visibleAfter = Math.max(this.chatAfter(matchID), this.joinedAt(matchID, playerID))
+    if (game?.phase === 'finished') {
+      return { messages: [], visibleAfter, open: false }
+    }
+    return {
+      messages: this.chatRows(matchID, visibleAfter),
+      visibleAfter,
+      open: true,
+    }
+  }
+
+  softDeleteChat(matchID: string, messageID: string, senderSeat: string): void {
+    if (this.isClosed(matchID)) throw new AppError('This table has ended.', 410)
+    if (this.matchGame(matchID)?.phase === 'finished') {
+      throw new AppError('Chat is closed for this deal.', 403)
+    }
+    const row = this.db
       .prepare(
-        `SELECT id, sender_seat, text, at FROM chat_messages
-         WHERE match_id = ?
-         ORDER BY at DESC, id DESC
-         LIMIT ?`,
+        `SELECT sender_seat, deleted_at FROM chat_messages WHERE id = ? AND match_id = ?`,
       )
-      .all(matchID, cap) as Array<{ id: string; sender_seat: string; text: string; at: number }>
-    return rows
-      .reverse()
-      .map((row) => ({ id: row.id, sender: row.sender_seat, text: row.text, at: row.at }))
+      .get(messageID, matchID) as { sender_seat: string; deleted_at: number | null } | undefined
+    if (!row) throw new AppError('Message not found.', 404)
+    if (row.sender_seat !== senderSeat) throw new AppError('You can only delete your own message.', 403)
+    if (row.deleted_at != null) return
+    this.db
+      .prepare(`UPDATE chat_messages SET deleted_at = ? WHERE id = ? AND match_id = ?`)
+      .run(utcNowMs(), messageID, matchID)
+  }
+
+  chatRow(messageID: string): { id: string; text: string; deletedAt: number | null } | null {
+    const row = this.db
+      .prepare(`SELECT id, text, deleted_at FROM chat_messages WHERE id = ?`)
+      .get(messageID) as { id: string; text: string; deleted_at: number | null } | undefined
+    if (!row) return null
+    return { id: row.id, text: row.text, deletedAt: row.deleted_at }
   }
 
   upsertDealResults(matchID: string, history: DealResult[] | undefined): void {
@@ -155,6 +199,7 @@ export class AppStore {
   }
 
   getLeaderboard(matchID: string): MatchLeaderboard {
+    if (this.isClosed(matchID)) throw new AppError('This table has ended.', 410)
     const rows = this.db
       .prepare(
         `SELECT deal, bhabhi_seat, got_away, at FROM deal_results
@@ -173,6 +218,189 @@ export class AppStore {
   wipeMatchExtras(matchID: string): void {
     this.db.prepare(`DELETE FROM chat_messages WHERE match_id = ?`).run(matchID)
     this.db.prepare(`DELETE FROM deal_results WHERE match_id = ?`).run(matchID)
+    this.db.prepare(`DELETE FROM seat_members WHERE match_id = ?`).run(matchID)
+    this.db.prepare(`DELETE FROM match_gates WHERE match_id = ?`).run(matchID)
+  }
+
+  matchGate(matchID: string): { closed: boolean; started: boolean } {
+    const game = this.matchGame(matchID)
+    return { closed: this.isClosed(matchID), started: !!game?.started }
+  }
+
+  /** Why a new player cannot take a seat, or null while the lobby is open. */
+  joinBlock(matchID: string): 'closed' | 'started' | null {
+    if (this.isClosed(matchID)) return 'closed'
+    if (this.matchGame(matchID)?.started) return 'started'
+    return null
+  }
+
+  isClosed(matchID: string): boolean {
+    const row = this.db
+      .prepare(`SELECT closed_at FROM match_gates WHERE match_id = ?`)
+      .get(matchID) as { closed_at: number | null } | undefined
+    return row?.closed_at != null
+  }
+
+  /** Remember when this seat sat, and the account if they are signed in. */
+  noteSeat(matchID: string, playerID: string, userID?: number | null, joinedAt = utcNowMs()): void {
+    this.db
+      .prepare(
+        `INSERT INTO seat_members (match_id, player_id, user_id, joined_at)
+         VALUES (@match_id, @player_id, @user_id, @joined_at)
+         ON CONFLICT(match_id, player_id) DO UPDATE SET
+           user_id = COALESCE(seat_members.user_id, excluded.user_id)`,
+      )
+      .run({
+        match_id: matchID,
+        player_id: playerID,
+        user_id: userID ?? null,
+        joined_at: joinedAt,
+      })
+  }
+
+  /** Signed-in player returns to the seat stored for their account. */
+  reclaimSeat(matchID: string, userID: number): { playerID: string; credentials: string; playerName: string } {
+    if (this.isClosed(matchID)) throw new AppError('This table has ended.', 410)
+    const member = this.db
+      .prepare(`SELECT player_id FROM seat_members WHERE match_id = ? AND user_id = ?`)
+      .get(matchID, userID) as { player_id: string } | undefined
+    if (!member) throw new AppError('You are not seated at this table.', 404)
+    const metadata = this.matchMetadata(matchID)
+    const seat = metadata?.players?.[Number(member.player_id)]
+    if (!seat?.credentials) throw new AppError('You are not seated at this table.', 404)
+    return {
+      playerID: String(member.player_id),
+      credentials: seat.credentials,
+      playerName: seat.name ?? '',
+    }
+  }
+
+  /** Host closes the link for everyone. Only from the result screen. */
+  closeMatch(matchID: string, playerID: string): void {
+    if (this.isClosed(matchID)) return
+    const game = this.matchGame(matchID)
+    if (!game || game.phase !== 'finished') throw new AppError('The deal is still going.', 400)
+    if (String(game.hostID ?? '') !== playerID) throw new AppError('Only the host can end the table.', 403)
+    this.markClosed(matchID)
+  }
+
+  /**
+   * A player left the result screen. When everyone still at the table has left
+   * without Play again, the link closes.
+   */
+  departResult(matchID: string, playerID: string): { closed: boolean } {
+    if (this.isClosed(matchID)) return { closed: true }
+    const game = this.matchGame(matchID)
+    if (!game || game.phase !== 'finished') return { closed: false }
+    const gate = this.ensureGate(matchID)
+    const departed = new Set(parseStringList(gate.departed))
+    departed.add(playerID)
+    this.db
+      .prepare(`UPDATE match_gates SET departed = ? WHERE match_id = ?`)
+      .run(JSON.stringify([...departed]), matchID)
+    const still = this.remainingSeats(matchID, game.left ?? [])
+    if (still.length === 0 || still.every((id) => departed.has(id))) this.markClosed(matchID)
+    return { closed: this.isClosed(matchID) }
+  }
+
+  /** Play again hides every message from the deal that just finished. */
+  openNextDealChat(matchID: string, at = utcNowMs()): void {
+    if (this.isClosed(matchID)) return
+    this.ensureGate(matchID)
+    this.db
+      .prepare(`UPDATE match_gates SET chat_after = ?, departed = '[]' WHERE match_id = ?`)
+      .run(at, matchID)
+  }
+
+  /** A finished deal with nobody left to leave closes on its own. */
+  closeIfAbandoned(matchID: string): void {
+    if (this.isClosed(matchID)) return
+    const game = this.matchGame(matchID)
+    if (!game || game.phase !== 'finished') return
+    if (this.remainingSeats(matchID, game.left ?? []).length === 0) this.markClosed(matchID)
+  }
+
+  matchPhase(matchID: string): string | null {
+    return this.matchGame(matchID)?.phase ?? null
+  }
+
+  private chatRows(
+    matchID: string,
+    visibleAfter: number,
+    cap = config.chat.historyCap,
+  ): TableChatMessage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, sender_seat, text, at FROM chat_messages
+         WHERE match_id = ? AND deleted_at IS NULL AND at >= ?
+         ORDER BY at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(matchID, visibleAfter, cap) as Array<{
+      id: string
+      sender_seat: string
+      text: string
+      at: number
+    }>
+    return rows
+      .reverse()
+      .map((row) => ({ id: row.id, sender: row.sender_seat, text: row.text, at: row.at }))
+  }
+
+  private joinedAt(matchID: string, playerID: string): number {
+    const row = this.db
+      .prepare(`SELECT joined_at FROM seat_members WHERE match_id = ? AND player_id = ?`)
+      .get(matchID, playerID) as { joined_at: number } | undefined
+    return row?.joined_at ?? 0
+  }
+
+  private chatAfter(matchID: string): number {
+    const row = this.db
+      .prepare(`SELECT chat_after FROM match_gates WHERE match_id = ?`)
+      .get(matchID) as { chat_after: number } | undefined
+    return row?.chat_after ?? 0
+  }
+
+  private ensureGate(matchID: string): { departed: string } {
+    this.db.prepare(`INSERT OR IGNORE INTO match_gates (match_id) VALUES (?)`).run(matchID)
+    return this.db
+      .prepare(`SELECT departed FROM match_gates WHERE match_id = ?`)
+      .get(matchID) as { departed: string }
+  }
+
+  private markClosed(matchID: string): void {
+    this.ensureGate(matchID)
+    this.db
+      .prepare(`UPDATE match_gates SET closed_at = COALESCE(closed_at, ?) WHERE match_id = ?`)
+      .run(utcNowMs(), matchID)
+  }
+
+  private remainingSeats(matchID: string, left: string[]): string[] {
+    const gone = new Set(left)
+    return this.seatList(matchID)
+      .filter((seat) => seat.name)
+      .map((seat) => String(seat.id))
+      .filter((id) => !gone.has(id))
+  }
+
+  private matchGame(matchID: string): {
+    phase?: string
+    started?: boolean
+    hostID?: string
+    left?: string[]
+  } | null {
+    const row = this.db.prepare(`SELECT state FROM matches WHERE id = ?`).get(matchID) as
+      | { state: string | null }
+      | undefined
+    if (!row?.state) return null
+    try {
+      const state = JSON.parse(row.state) as {
+        G?: { phase?: string; started?: boolean; hostID?: string; left?: string[] }
+      }
+      return state.G ?? null
+    } catch {
+      return null
+    }
   }
 
   private createSession(userID: number): string {
@@ -249,11 +477,15 @@ function isUniqueError(reason: unknown): boolean {
   )
 }
 
-function parseGotAway(raw: string): string[] {
+function parseStringList(raw: string): string[] {
   try {
     const parsed = JSON.parse(raw) as unknown
     return Array.isArray(parsed) ? parsed.map(String) : []
   } catch {
     return []
   }
+}
+
+function parseGotAway(raw: string): string[] {
+  return parseStringList(raw)
 }
