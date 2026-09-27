@@ -16,7 +16,7 @@
     Suit,
   } from '../games/bhabhi-thulla/types'
   import type { GameConnection, GameSnapshot } from '../multiplayer/gameClient'
-  import { getSeats } from '../multiplayer/lobby'
+  import { getSeats, joinUrl } from '../multiplayer/lobby'
   import { fetchMatchLeaderboard } from '../multiplayer/authClient'
   import { tallyLeaderboard, type MatchLeaderboard } from '../multiplayer/leaderboard'
   import { formatLocalDateTime, toUtcIso } from '../lib/time'
@@ -35,7 +35,7 @@
   let state: GameSnapshot | null = null
   let seats: LobbySeat[] = []
   let selectedCard = ''
-  let copied = false
+  let copied: 'code' | 'link' | null = null
   let poll: number | undefined
   let timers: number[] = []
 
@@ -379,10 +379,15 @@
     selectedCard = ''
   }
 
-  async function copyCode() {
-    await navigator.clipboard.writeText(session.matchID)
-    copied = true
-    window.setTimeout(() => (copied = false), timing.copiedFeedbackMs)
+  async function copyShare(kind: 'code' | 'link') {
+    const text = kind === 'link' ? joinUrl(session.matchID) : session.matchID
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      return
+    }
+    copied = kind
+    window.setTimeout(() => (copied = null), timing.copiedFeedbackMs)
   }
 
   function toggleName(playerID: string) {
@@ -519,7 +524,14 @@
       <button class="icon-button" on:click={onLeave} aria-label="Leave table">←</button>
       <div>
         <p class="eyebrow">Game code</p>
-        <button class="code" on:click={copyCode}>{copied ? 'Copied!' : session.matchID}</button>
+        <div class="share-actions">
+          <button class="code" on:click={() => copyShare('code')}>
+            {copied === 'code' ? 'Copied!' : session.matchID}
+          </button>
+          <button type="button" class="copy-link" on:click={() => copyShare('link')}>
+            {copied === 'link' ? 'Copied!' : 'Copy link'}
+          </button>
+        </div>
       </div>
       <button type="button" class="waste secret-tap" on:click={() => peekGate?.tap()}>
         <span>▧</span><strong>{G.wasteCount}</strong><small>waste</small>
@@ -530,7 +542,7 @@
       <section class="waiting-card">
         <button type="button" class="pulse secret-tap" on:click={() => peekGate?.tap()} aria-hidden="true">♠</button>
         <h1>Players are joining</h1>
-        <p>Share the game code with friends. The game can start when every chosen seat is filled.</p>
+        <p>Share the game code or link with friends. The game can start when every chosen seat is filled.</p>
         {#if G.shuffleReport}
           <div class="shuffle-report" class:stacked={G.shuffleReport.verdict === 'stacked'} class:random={G.shuffleReport.verdict === 'random' || G.shuffleReport.verdict === 'well'}>
             <p class="shuffle-kicker">Deck shuffle</p>

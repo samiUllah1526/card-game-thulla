@@ -387,6 +387,9 @@ input::placeholder { color: #96a098; }
 .lobby-tabs button.active { color: var(--green); border-color: var(--green); background: #edf3dc; }
 .signed-in-line { margin: 12px 2px 0; color: var(--ink); font-size: 13px; font-weight: 650; }
 .signed-in-line strong { font-weight: 850; }
+.join-hint { margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+.join-seats { margin: 0; }
+.join-page .signed-in-line { margin: 0; }
 .auth-panel { margin-top: 16px; gap: 12px; }
 .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .auth-tabs button {
@@ -579,7 +582,12 @@ input:disabled { background: #f3f6ef; color: var(--muted); }
   padding: 8px 14px; border-bottom: 1px solid rgba(34, 72, 49, .1); text-align: center;
 }
 .icon-button { width: 42px; height: 42px; border: 0; border-radius: 13px; background: rgba(255,255,255,.7); color: var(--ink); font-size: 22px; }
+.share-actions { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; justify-content: center; }
 .code { padding: 0; border: 0; color: var(--ink); background: transparent; font-size: 15px; font-weight: 900; letter-spacing: .04em; }
+.copy-link {
+  padding: 0; border: 0; color: var(--green); background: transparent;
+  font-size: 12px; font-weight: 800;
+}
 .waste {
   display: grid; grid-template-columns: 1fr 1fr; align-items: center; line-height: 1;
   border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left;

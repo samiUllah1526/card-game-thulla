@@ -1,0 +1,122 @@
+<script lang="ts">
+  import { onDestroy, onMount } from 'svelte'
+  import { config } from '../config'
+  import type { LobbySeat, Session } from '../games/bhabhi-thulla/types'
+  import type { PublicUser } from '../multiplayer/authTypes'
+  import {
+    firstEmptySeat,
+    getSeats,
+    joinMatch,
+    nextGuestName,
+    saveSession,
+  } from '../multiplayer/lobby'
+
+  export let code: string
+  export let user: PublicUser | null = null
+  export let onJoined: (session: Session) => void
+  export let onBack: () => void
+
+  let seats: LobbySeat[] = []
+  let guestName = ''
+  let loading = false
+  let error = ''
+  let missing = false
+  let poll: number | undefined
+
+  $: suggestedGuest = nextGuestName(seats)
+  $: emptySeat = firstEmptySeat(seats)
+  $: canJoin = !missing && !!emptySeat && !loading
+
+  async function refresh() {
+    try {
+      seats = await getSeats(code)
+      missing = false
+      if (error === 'That table was not found.') error = ''
+    } catch {
+      seats = []
+      missing = true
+      error = 'That table was not found.'
+    }
+  }
+
+  async function join() {
+    if (!canJoin || !emptySeat) {
+      error = missing ? 'That table was not found.' : 'This table is full.'
+      return
+    }
+    const name = user ? user.displayName : guestName.trim() || nextGuestName(seats)
+    loading = true
+    error = ''
+    try {
+      const session = await joinMatch(code, String(emptySeat.id), name)
+      saveSession(session)
+      onJoined(session)
+    } catch (reason) {
+      error = reason instanceof Error ? reason.message : 'Could not join this table.'
+      await refresh()
+    } finally {
+      loading = false
+    }
+  }
+
+  onMount(() => {
+    void refresh()
+    poll = window.setInterval(() => void refresh(), config.timing.seatPollMs)
+  })
+
+  onDestroy(() => {
+    if (poll) window.clearInterval(poll)
+  })
+</script>
+
+<main class="lobby page join-page">
+  <header class="brand">
+    <div class="logo-mark">{config.game.mark}</div>
+    <div>
+      <p class="eyebrow">Join a table</p>
+      <h1>{config.game.title}</h1>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="section-title">
+      <span class="step">+</span>
+      <div>
+        <h2>Game {code}</h2>
+        <p>Tap Join to sit at the first empty seat. You are not seated yet.</p>
+      </div>
+    </div>
+
+    {#if seats.length}
+      <div class="seat-list join-seats">
+        {#each seats as seat}
+          <div class:filled={!!seat.name}>
+            <span>{seat.name ? seat.name.slice(0, 1) : seat.id + 1}</span>
+            <p>{seat.name ?? 'Empty'}</p>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if user}
+      <p class="signed-in-line">You’ll join as <strong>{user.displayName}</strong></p>
+    {:else}
+      <label>
+        <span>Your name</span>
+        <input
+          bind:value={guestName}
+          maxlength="24"
+          placeholder="Leave blank to join as {suggestedGuest}"
+          autocomplete="nickname"
+        />
+      </label>
+      <p class="join-hint">Leave blank to join as {suggestedGuest}.</p>
+    {/if}
+
+    <button class="primary" type="button" on:click={join} disabled={!canJoin}>
+      Join
+    </button>
+    <button class="secondary" type="button" on:click={onBack}>Back</button>
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
+  </section>
+</main>

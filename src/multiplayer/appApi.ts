@@ -1,5 +1,6 @@
 import Router from '@koa/router'
 import type { Context } from 'koa'
+import bodyParser from 'koa-bodyparser'
 import { config } from '../config'
 import { sanitizeChatText } from './chat'
 import { AppError, type AppStore } from './appStore'
@@ -14,6 +15,7 @@ const cookieOpts = {
 
 export function createAppRouter(store: AppStore | null): Router {
   const router = new Router()
+  router.use(bodyParser())
 
   const needStore = (ctx: Context): AppStore | null => {
     if (store) return store
